@@ -14,8 +14,10 @@
 #include <eosio/chain_plugin/chain_plugin.hpp>
 
 namespace {
-  const char* SENDER_BIND = "zmq-sender-bind";
+  const char* SENDER_BIND_OPT = "zmq-sender-bind";
   const char* SENDER_BIND_DEFAULT = "tcp://127.0.0.1:5556";
+  const char* WHITELIST_OPT = "zmq-whitelist-contract";
+  const char* BLACKLIST_OPT = "zmq-action-blacklist";
   const std::string MSGTYPE_ACTION_TRACE = "action_trace";
   const std::string MSGTYPE_IRREVERSIBLE_BLOCK = "irreversible_block";
   const std::string MSGTYPE_FORK = "fork";
@@ -155,8 +157,8 @@ namespace zmqplugin {
 
   struct zmq_accepted_block_object {
     block_num_type               accepted_block_num;
+    block_timestamp_type         accepted_block_timestamp;
     digest_type                  accepted_block_digest;
-    fc::variant                  accepted_block;
   };
 
   // see status definitions in libraries/chain/include/eosio/chain/block.hpp
@@ -186,7 +188,10 @@ namespace eosio {
     std::set<name>         system_accounts;
     std::map<name,std::set<name>>  blacklist_actions;
     std::map<transaction_id_type, transaction_trace_ptr> cached_traces;
-    uint32_t _end_block = 0;
+
+    uint32_t               _end_block = 0;
+    bool                   use_whitelist = false;
+    std::set<name>         whitelist_contracts;
 
     fc::optional<scoped_connection> applied_transaction_connection;
     fc::optional<scoped_connection> accepted_block_connection;
@@ -294,355 +299,107 @@ namespace eosio {
 
     void on_action_trace( const action_trace& at, const block_state_ptr& block_state )
     {
+
+      if( use_whitelist ) {
+         // only allow accounts from whitelist
+       if( whitelist_contracts.count(at.act.account) == 0 ) {
+         return;
+       }
+     }
+
       // check the action against the blacklist
-      auto search_acc = blacklist_actions.find(at.act.account);
-      if(search_acc != blacklist_actions.end()) {
-        auto search_act = search_acc->second.find(at.act.name);
-        if( search_act != search_acc->second.end() ) {
-          return;
-        }
-      }
-
-      auto& chain = chain_plug->chain();
-
-      zmq_action_object zao;
-      zao.global_action_seq = at.receipt.global_sequence;
-      zao.block_num = block_state->block->block_num();
-      zao.block_time = block_state->block->timestamp;
-      zao.action_trace = chain.to_variant_with_abi(at, abi_serializer_max_time);
-
-      /*std::set<name> accounts;
-      assetmoves asset_moves;
-
-      find_accounts_and_tokens(at, accounts, asset_moves);
-
-      const auto& rm = chain.get_resource_limits_manager();
-
-      // populatte resource_balances
-      for (auto accit = accounts.begin(); accit != accounts.end(); ++accit) {
-        name account_name = *accit;
-        if( is_account_of_interest(account_name) ) {
-          resource_balance bal;
-          bal.account_name = account_name;
-          rm.get_account_limits( account_name, bal.ram_quota, bal.net_weight, bal.cpu_weight );
-          bool grelisted = chain.is_resource_greylisted(account_name);
-          bal.net_limit = rm.get_account_net_limit_ex( account_name, !grelisted);
-          bal.cpu_limit = rm.get_account_cpu_limit_ex( account_name, !grelisted);
-          bal.ram_usage = rm.get_account_ram_usage( account_name );
-          zao.resource_balances.emplace_back(bal);
-        }
-      }
-
-      const auto& db = chain.db();
-      const auto &idx = db.get_index<key_value_index, by_scope_primary>();
-
-      // populate token balances
-      for (auto ctrit = asset_moves.begin(); ctrit != asset_moves.end(); ++ctrit) {
-        account_name token_code = ctrit->first;
-        for (auto symit = ctrit->second.begin(); symit != ctrit->second.end(); ++symit) {
-          symbol sym = symit->first;
-          uint64_t symcode = sym.to_symbol_code().value;
-          // check if this is a valid doken contract
-          const auto* stat_t_id = db.find<chain::table_id_object, chain::by_code_scope_table>
-            (boost::make_tuple( token_code, symcode, N(stat) ));
-          if( stat_t_id != nullptr ) {
-            auto statit = idx.find(boost::make_tuple( stat_t_id->id, symcode ));
-            if ( statit != idx.end() ) {
-              // found the currency in stat table, assuming this is a valid token
-              // get the balance for evey accout
-              for( auto accitr = symit->second.begin(); accitr != symit->second.end(); ++accitr ) {
-                account_name account_name = *accitr;
-                if( is_account_of_interest(account_name) ) {
-                  bool found = false;
-                  const auto* balance_t_id = db.find<chain::table_id_object, chain::by_code_scope_table>
-                    (boost::make_tuple( token_code, account_name, N(accounts) ));
-                  if( balance_t_id != nullptr ) {
-                    auto bal_entry = idx.find(boost::make_tuple( balance_t_id->id, symcode ));
-                    if ( bal_entry != idx.end() ) {
-                      found = true;
-                      asset bal;
-                      fc::datastream<const char *> ds(bal_entry->value.data(), bal_entry->value.size());
-                      fc::raw::unpack(ds, bal);
-                      if( bal.get_symbol().valid() ) {
-                        zao.currency_balances.emplace_back(currency_balance{account_name, token_code, bal});
-                      }
-                    }
-                  }
-                  
-                  if( !found ) {
-                    // assume the balance was emptied and the table entry was deleted
-                    zao.currency_balances.emplace_back(currency_balance{account_name, token_code, asset(0, sym), true});
-                  }
-                }
-              }
-            }
-          }
-        }
-      }*/
-
-      zao.last_irreversible_block = chain.last_irreversible_block_num();
-      send_msg(fc::json::to_string(zao), MSGTYPE_ACTION_TRACE, 0);
-    }
-
-
-    void on_irreversible_block( const chain::block_state_ptr& bs )
-    {
-      zmq_irreversible_block_object zibo;
-      zibo.irreversible_block_num = bs->block->block_num();
-      zibo.irreversible_block_digest = bs->block->digest();
-      send_msg(fc::json::to_string(zibo), MSGTYPE_IRREVERSIBLE_BLOCK, 0);
-    }
-
-
-    void inline add_asset_move(assetmoves& asset_moves, account_name contract,
-     symbol symbol, account_name owner)
-    {
-      asset_moves[contract][symbol].insert(owner);
-    }
-
-
-    void find_accounts_and_tokens(const action_trace& at,
-      std::set<name>& accounts,
-      assetmoves& asset_moves)
-    {
-      accounts.insert(at.act.account);
-
-      if( at.receipt.receiver != at.act.account ) {
-        accounts.insert(at.receipt.receiver);
-      }
-
-      if( at.act.account == config::system_account_name ) {
-        switch((uint64_t) at.act.name) {
-          case N(newaccount):
-          {
-            const auto data = fc::raw::unpack<chain::newaccount>(at.act.data);
-            accounts.insert(data.name);
-          }
-          break;
-          case N(setcode):
-          {
-            const auto data = fc::raw::unpack<chain::setcode>(at.act.data);
-            accounts.insert(data.account);
-          }
-          break;
-          case N(setabi):
-          {
-            const auto data = fc::raw::unpack<chain::setabi>(at.act.data);
-            accounts.insert(data.account);
-          }
-          break;
-          case N(updateauth):
-          {
-            const auto data = fc::raw::unpack<chain::updateauth>(at.act.data);
-            accounts.insert(data.account);
-          }
-          break;
-          case N(deleteauth):
-          {
-            const auto data = fc::raw::unpack<chain::deleteauth>(at.act.data);
-            accounts.insert(data.account);
-          }
-          break;
-          case N(linkauth):
-          {
-            const auto data = fc::raw::unpack<chain::linkauth>(at.act.data);  
-            accounts.insert(data.account);
-          }
-          break;
-          case N(unlinkauth):
-          {
-            const auto data = fc::raw::unpack<chain::unlinkauth>(at.act.data);  
-            accounts.insert(data.account);
-          }
-          break;
-          case N(buyrambytes):
-          {
-            const auto data = fc::raw::unpack<zmqplugin::syscontract::buyrambytes>(at.act.data);  
-            accounts.insert(data.payer);
-            if( data.receiver != data.payer ) {
-              accounts.insert(data.receiver);
-            }
-          }
-          break;
-          case N(buyram):
-          {
-            const auto data = fc::raw::unpack<zmqplugin::syscontract::buyram>(at.act.data);  
-            accounts.insert(data.payer);
-            if( data.receiver != data.payer ) {
-              accounts.insert(data.receiver);
-            }
-          }
-          break;
-          case N(sellram):
-          {
-            const auto data = fc::raw::unpack<zmqplugin::syscontract::sellram>(at.act.data);  
-            accounts.insert(data.account);
-          }
-          break;
-          case N(delegatebw):
-          {
-            const auto data = fc::raw::unpack<zmqplugin::syscontract::delegatebw>(at.act.data);  
-            accounts.insert(data.from);
-            if( data.receiver != data.from ) {
-              accounts.insert(data.receiver);
-            }
-          }
-          break;
-          case N(undelegatebw):
-          {
-            const auto data = fc::raw::unpack<zmqplugin::syscontract::undelegatebw>(at.act.data);  
-            accounts.insert(data.from);
-            if( data.receiver != data.from ) {
-              accounts.insert(data.receiver);
-            }
-          }
-          break;
-          case N(refund):
-          {
-            const auto data = fc::raw::unpack<zmqplugin::syscontract::refund>(at.act.data);  
-            accounts.insert(data.owner);
-          }
-          break;
-          case N(regproducer):
-          {
-            const auto data = fc::raw::unpack<zmqplugin::syscontract::regproducer>(at.act.data);  
-            accounts.insert(data.producer);
-          }
-          break;
-          case N(bidname):
-          {
-            // do nothing because newname account does not exist yet
-          }
-          break;
-          case N(unregprod):
-          {
-            const auto data = fc::raw::unpack<zmqplugin::syscontract::unregprod>(at.act.data);  
-            accounts.insert(data.producer);
-          }
-          break;
-          case N(regproxy):
-          {
-            const auto data = fc::raw::unpack<zmqplugin::syscontract::regproxy>(at.act.data);  
-            accounts.insert(data.proxy);
-          }
-          break;
-          case N(voteproducer):
-          {
-            const auto data = fc::raw::unpack<zmqplugin::syscontract::voteproducer>(at.act.data);  
-            accounts.insert(data.voter);
-            if( data.proxy ) {
-              accounts.insert(data.proxy);
-            }
-            // not including the producrs list, although some projects may need it
-          }
-          break;
-          case N(claimrewards):
-          {
-            const auto data = fc::raw::unpack<zmqplugin::syscontract::claimrewards>(at.act.data);  
-            accounts.insert(data.owner);
-          }
-          break;
-        }
-      }
-      else {
-        switch((uint64_t) at.act.name) {
-          case N(transfer):
-          {
-            const auto data = fc::raw::unpack<zmqplugin::token::transfer>(at.act.data);
-            symbol s = data.quantity.get_symbol();
-            if( s.valid() ) {
-              add_asset_move(asset_moves, at.act.account, s, data.from);
-              add_asset_move(asset_moves, at.act.account, s, data.to);
-            }
-          }
-          break;
-          case N(issue):
-          {
-            const auto data = fc::raw::unpack<zmqplugin::token::issue>(at.act.data);
-            symbol s = data.quantity.get_symbol();
-            if( s.valid() ) {
-              add_asset_move(asset_moves, at.act.account, s, data.to);
-            }
-          }
-          break;
-          case N(open):
-          {
-            const auto data = fc::raw::unpack<zmqplugin::token::open>(at.act.data);
-            if( data.symbol.valid() ) {
-              add_asset_move(asset_moves, at.act.account, data.symbol, data.owner);
-            }
-          }
-          break;
-        }
-
-        for( const auto& iline : at.inline_traces ) {
-          find_accounts_and_tokens( iline, accounts, asset_moves );
-        }
+     auto search_acc = blacklist_actions.find(at.act.account);
+     if(search_acc != blacklist_actions.end()) {
+      if( search_acc->second.count(at.act.name) != 0 ) {
+        return;
       }
     }
 
-    bool is_account_of_interest(name account_name)
-    {
-      auto search = system_accounts.find(account_name);
-      if(search != system_accounts.end()) {
-        return false;
-      }
-      return true;
-    }
-  };
+    auto& chain = chain_plug->chain();
 
+    zmq_action_object zao;
+    zao.global_action_seq = at.receipt.global_sequence;
+    zao.block_num = block_state->block->block_num();
+    zao.block_time = block_state->block->timestamp;
+    zao.action_trace = chain.to_variant_with_abi(at, abi_serializer_max_time);
 
-  zmq_plugin::zmq_plugin():my(new zmq_plugin_impl()){}
-  zmq_plugin::~zmq_plugin(){}
-
-  void zmq_plugin::set_program_options(options_description&, options_description& cfg)
-  {
-    cfg.add_options()
-    (SENDER_BIND, bpo::value<string>()->default_value(SENDER_BIND_DEFAULT),
-      "ZMQ Sender Socket binding")
-    ("zmq-action-blacklist", bpo::value<vector<string>>()->composing()->multitoken(),
-      "Action (in the form code::action) added to zmq action blacklist (may specify multiple times)");
-  }
-  
-  void zmq_plugin::plugin_initialize(const variables_map& options)
-  {
-    my->socket_bind_str = options.at(SENDER_BIND).as<string>();
-    if (my->socket_bind_str.empty()) {
-      wlog("zmq-sender-bind not specified => eosio::zmq_plugin disabled.");
-      return;
-    }
-
-    if( options.count( "zmq-action-blacklist" )) {
-     const vector<string>& acts = options["zmq-action-blacklist"].as<vector<string>>();
-     auto& list = my->blacklist_actions;
-     for( const auto& a : acts ) {
-      auto pos = a.find( "::" );
-      EOS_ASSERT( pos != string::npos, plugin_config_exception, "Invalid entry in zmq-action-blacklist: '${a}'", ("a", a));
-      account_name code( a.substr( 0, pos ));
-      account_name act( a.substr( pos + 2 ));
-      list.emplace(make_pair( N(code.value),std::set<account_name>{ act } ));
-    }
+    zao.last_irreversible_block = chain.last_irreversible_block_num();
+    send_msg(fc::json::to_string(zao), MSGTYPE_ACTION_TRACE, 0);
   }
 
-  ilog("Binding to ZMQ PUSH socket ${u}", ("u", my->socket_bind_str));
-  my->sender_socket.bind(my->socket_bind_str);
 
-  my->chain_plug = app().find_plugin<chain_plugin>();
-  my->abi_serializer_max_time = my->chain_plug->get_abi_serializer_max_time();
+  void on_irreversible_block( const chain::block_state_ptr& bs )
+  {
+    zmq_irreversible_block_object zibo;
+    zibo.irreversible_block_num = bs->block->block_num();
+    zibo.irreversible_block_digest = bs->block->digest();
+    send_msg(fc::json::to_string(zibo), MSGTYPE_IRREVERSIBLE_BLOCK, 0);
+  }
 
-  auto& chain = my->chain_plug->chain();
+};
 
-  my->applied_transaction_connection.emplace
-  ( chain.applied_transaction.connect( [&]( const transaction_trace_ptr& p ){
-    my->on_applied_transaction(p);  }));
 
-  my->accepted_block_connection.emplace
-  ( chain.accepted_block.connect([&](const block_state_ptr& p) {
-    my->on_accepted_block(p); }));
+zmq_plugin::zmq_plugin():my(new zmq_plugin_impl()){}
+zmq_plugin::~zmq_plugin(){}
 
-  my->irreversible_block_connection.emplace
-  ( chain.irreversible_block.connect( [&]( const chain::block_state_ptr& bs ) {
-    my->on_irreversible_block( bs ); } ));
+void zmq_plugin::set_program_options(options_description&, options_description& cfg)
+{
+  cfg.add_options()
+  (SENDER_BIND_OPT, bpo::value<string>()->default_value(SENDER_BIND_DEFAULT),
+    "ZMQ Sender Socket binding")
+  (BLACKLIST_OPT, bpo::value<vector<string>>()->composing()->multitoken(),
+    "Action (in the form code::action) added to zmq action blacklist (may specify multiple times)")
+  (WHITELIST_OPT, bpo::value<vector<string>>()->composing(),
+    "ZMQ plugin whitelist of contracts to track");
+}
+
+void zmq_plugin::plugin_initialize(const variables_map& options)
+{
+  my->socket_bind_str = options.at(SENDER_BIND).as<string>();
+  if (my->socket_bind_str.empty()) {
+    wlog("zmq-sender-bind not specified => eosio::zmq_plugin disabled.");
+    return;
+  }
+
+  if( options.count(WHITELIST_OPT) > 0 ) {
+   my->use_whitelist = true;
+   auto whl = options.at(WHITELIST_OPT).as<vector<string>>();
+   for( auto& whlname: whl ) {
+     my->whitelist_contracts.insert(eosio::name(whlname));
+   }
+ }
+
+ if( options.count(BLACKLIST_OPT)) {
+   const vector<string>& acts = options[BLACKLIST_OPT].as<vector<string>>();
+   auto& list = my->blacklist_actions;
+   for( const auto& a : acts ) {
+    auto pos = a.find( "::" );
+    EOS_ASSERT( pos != string::npos, plugin_config_exception, "Invalid entry in zmq-action-blacklist: '${a}'", ("a", a));
+    account_name code( a.substr( 0, pos ));
+    account_name act( a.substr( pos + 2 ));
+    list.emplace(make_pair( N(code.value),std::set<account_name>{ act } ));
+  }
+}
+
+ilog("Binding to ZMQ PUSH socket ${u}", ("u", my->socket_bind_str));
+my->sender_socket.bind(my->socket_bind_str);
+
+my->chain_plug = app().find_plugin<chain_plugin>();
+my->abi_serializer_max_time = my->chain_plug->get_abi_serializer_max_time();
+
+auto& chain = my->chain_plug->chain();
+
+my->applied_transaction_connection.emplace
+( chain.applied_transaction.connect( [&]( const transaction_trace_ptr& p ){
+  my->on_applied_transaction(p);  }));
+
+my->accepted_block_connection.emplace
+( chain.accepted_block.connect([&](const block_state_ptr& p) {
+  my->on_accepted_block(p); }));
+
+my->irreversible_block_connection.emplace
+( chain.irreversible_block.connect( [&]( const chain::block_state_ptr& bs ) {
+  my->on_irreversible_block( bs ); } ));
 }
 
 void zmq_plugin::plugin_startup() {
