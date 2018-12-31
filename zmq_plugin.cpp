@@ -252,12 +252,10 @@ namespace eosio {
       _end_block = block_num;
 
       {
-        auto& chain = chain_plug->chain();
-
         zmq_accepted_block_object zabo;
         zabo.accepted_block_num = block_num;
+        zabo.accepted_block_timestamp = block_state->block->timestamp;
         zabo.accepted_block_digest = block_state->block->digest();
-        zabo.accepted_block = chain.to_variant_with_abi(block_state->block, abi_serializer_max_time);
         send_msg(fc::json::to_string(zabo), MSGTYPE_ACCEPTED_BLOCK, 0);
       }
 
@@ -355,7 +353,7 @@ void zmq_plugin::set_program_options(options_description&, options_description& 
 
 void zmq_plugin::plugin_initialize(const variables_map& options)
 {
-  my->socket_bind_str = options.at(SENDER_BIND).as<string>();
+  my->socket_bind_str = options.at(SENDER_BIND_OPT).as<string>();
   if (my->socket_bind_str.empty()) {
     wlog("zmq-sender-bind not specified => eosio::zmq_plugin disabled.");
     return;
