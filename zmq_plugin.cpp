@@ -470,7 +470,7 @@ FC_REFLECT( zmqplugin::zmq_fork_block_object,
   (invalid_block_num) )
 
 FC_REFLECT( zmqplugin::zmq_accepted_block_object,
-  (accepted_block_num)(accepted_block_digest)(accepted_block) )
+  (accepted_block_num)(accepted_block_digest))
 
 FC_REFLECT( zmqplugin::zmq_failed_transaction_object,
   (trx_id)(block_num)(status_name)(status_int) )
