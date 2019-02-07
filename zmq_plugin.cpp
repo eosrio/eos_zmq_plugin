@@ -11,7 +11,7 @@
 namespace {
   const char* SENDER_BIND_OPT = "zmq-sender-bind";
   const char* SENDER_BIND_DEFAULT = "tcp://127.0.0.1:5556";
-  const char* WHITELIST_OPT = "zmq-whitelist-contract";
+  const char* WHITELIST_OPT = "zmq-whitelist-account";
   const char* BLACKLIST_OPT = "zmq-action-blacklist";
   const std::string MSGTYPE_ACTION_TRACE = "action_trace";
   const std::string MSGTYPE_IRREVERSIBLE_BLOCK = "irreversible_block";
@@ -77,7 +77,7 @@ namespace eosio {
 
     uint32_t               _end_block = 0;
     bool                   use_whitelist = false;
-    std::set<name>         whitelist_contracts;
+    std::set<name>         whitelist_accounts;
 
     fc::optional<scoped_connection> applied_transaction_connection;
     fc::optional<scoped_connection> accepted_block_connection;
@@ -175,7 +175,7 @@ namespace eosio {
 
       if( use_whitelist ) {
          // only allow accounts from whitelist
-       if( whitelist_contracts.count(at.act.account) == 0 ) {
+       if( whitelist_accounts.count(at.act.account) == 0 ) {
          return;
        }
      }
@@ -223,7 +223,7 @@ void zmq_plugin::set_program_options(options_description&, options_description& 
   (BLACKLIST_OPT, bpo::value<vector<string>>()->composing()->multitoken(),
     "Action (in the form code::action) added to zmq action blacklist (may specify multiple times)")
   (WHITELIST_OPT, bpo::value<vector<string>>()->composing(),
-    "ZMQ plugin whitelist of contracts to track");
+    "ZMQ plugin whitelist of accounts to track");
 }
 
 void zmq_plugin::plugin_initialize(const variables_map& options)
@@ -238,7 +238,7 @@ void zmq_plugin::plugin_initialize(const variables_map& options)
    my->use_whitelist = true;
    auto whl = options.at(WHITELIST_OPT).as<vector<string>>();
    for( auto& whlname: whl ) {
-     my->whitelist_contracts.insert(eosio::name(whlname));
+     my->whitelist_accounts.insert(eosio::name(whlname));
    }
  }
 
