@@ -29,8 +29,6 @@ namespace zmqplugin {
     block_num_type               block_num;
     chain::block_timestamp_type  block_time;
     fc::variant                  action_trace;
-    vector<resource_balance>     resource_balances;
-    vector<currency_balance>     currency_balances;
     uint32_t                     last_irreversible_block;
   };
 
