@@ -1,8 +1,3 @@
-/**
- *  @file
- *  @copyright defined in eos/LICENSE.txt
- *  @author cc32d9 <cc32d9@gmail.com>
- */
 #include <eosio/zmq_plugin/zmq_plugin.hpp>
 #include <string>
 #include <zmq.hpp>
@@ -28,113 +23,6 @@ namespace {
 namespace zmqplugin {
   using namespace eosio;
   using namespace eosio::chain;
-  using account_resource_limit = chain::resource_limits::account_resource_limit;
-
-  // these structures are not defined in contract_types.hpp, so we define them here
-  namespace syscontract {
-
-    struct buyrambytes {
-      account_name payer;
-      account_name receiver;
-      uint32_t bytes;
-    };
-
-    struct buyram {
-      account_name payer;
-      account_name receiver;
-      asset quant;
-    };
-
-    struct sellram {
-      account_name account;
-      uint64_t bytes;
-    };
-
-    struct delegatebw {
-      account_name from;
-      account_name receiver;
-      asset stake_net_quantity;
-      asset stake_cpu_quantity;
-      bool transfer;
-    };
-
-    struct undelegatebw {
-      account_name from;
-      account_name receiver;
-      asset unstake_net_quantity;
-      asset unstake_cpu_quantity;
-    };
-
-    struct refund {
-      account_name owner;
-    };
-
-    struct regproducer {
-      account_name producer;
-      public_key_type producer_key;
-      string url;
-      uint16_t location;
-    };
-
-    struct unregprod {
-      account_name producer;
-    };
-
-    struct regproxy {
-      account_name proxy;
-      bool isproxy;
-    };
-
-    struct voteproducer {
-      account_name voter;
-      account_name proxy;
-      std::vector<account_name> producers;
-    };
-
-    struct claimrewards {
-      account_name owner;
-    };
-  }
-
-  namespace token {
-    struct transfer {
-      account_name from;
-      account_name to;
-      asset quantity;
-      string memo;
-    };
-
-    struct issue {
-      account_name to;
-      asset quantity;
-      string memo;
-    };
-
-    struct open {
-      account_name owner;
-      symbol symbol;
-      account_name ram_payer;
-    };
-  }
-
-  typedef std::map<account_name,std::map<symbol,std::set<account_name>>> assetmoves;
-
-  struct resource_balance {
-    name                       account_name;
-    int64_t                    ram_quota  = 0;
-    int64_t                    ram_usage = 0;
-    int64_t                    net_weight = 0;
-    int64_t                    cpu_weight = 0;
-    account_resource_limit     net_limit;
-    account_resource_limit     cpu_limit;
-  };
-
-  struct currency_balance {
-    name                       account_name;
-    name                       contract;
-    asset                      balance;
-    bool                       deleted = false;
-  };
 
   struct zmq_action_object {
     uint64_t                     global_action_seq;
@@ -158,6 +46,7 @@ namespace zmqplugin {
   struct zmq_accepted_block_object {
     block_num_type               accepted_block_num;
     block_timestamp_type         accepted_block_timestamp;
+    account_name                 accepted_block_producer;
     digest_type                  accepted_block_digest;
   };
 
@@ -185,7 +74,6 @@ namespace eosio {
     string socket_bind_str;
     chain_plugin*          chain_plug = nullptr;
     fc::microseconds       abi_serializer_max_time;
-    std::set<name>         system_accounts;
     std::map<name,std::set<name>>  blacklist_actions;
     std::map<transaction_id_type, transaction_trace_ptr> cached_traces;
 
@@ -201,16 +89,7 @@ namespace eosio {
     context(1),
     sender_socket(context, ZMQ_PUSH)
     {
-      std::vector<name> sys_acc_names = {
-        chain::config::system_account_name,
-        N(eosio.msig),  N(eosio.token),  N(eosio.ram), N(eosio.ramfee),
-        N(eosio.stake), N(eosio.vpay), N(eosio.bpay), N(eosio.saving)
-      };
-
-      for(name n : sys_acc_names) {
-        system_accounts.insert(n);
-      }
-
+      // Add eosio::onblock by default to the blacklist
       blacklist_actions.emplace(std::make_pair(chain::config::system_account_name,std::set<name>{ N(onblock) } ));
     }
 
@@ -220,13 +99,10 @@ namespace eosio {
       string part1 = "{\"type\":\"";
       string part2 = "\",\"" + msgtype + "\":";
       string part3 = "}";
-
       string result = part1 + msgtype + part2 + content + part3;
-
       zmq::message_t message(result.length());
       unsigned char* ptr = (unsigned char*) message.data();
       memcpy(ptr, result.c_str(), result.length());
-
       sender_socket.send(message);
     }
 
@@ -255,6 +131,7 @@ namespace eosio {
         zmq_accepted_block_object zabo;
         zabo.accepted_block_num = block_num;
         zabo.accepted_block_timestamp = block_state->block->timestamp;
+        zabo.accepted_block_producer = block_state->header.producer;
         zabo.accepted_block_digest = block_state->block->digest();
         send_msg(fc::json::to_string(zabo), MSGTYPE_ACCEPTED_BLOCK, 0);
       }
@@ -411,66 +288,33 @@ void zmq_plugin::plugin_shutdown() {
 }
 }
 
-FC_REFLECT( zmqplugin::syscontract::buyrambytes,
-  (payer)(receiver)(bytes) )
-
-FC_REFLECT( zmqplugin::syscontract::buyram,
-  (payer)(receiver)(quant) )
-
-FC_REFLECT( zmqplugin::syscontract::sellram,
-  (account)(bytes) )
-
-FC_REFLECT( zmqplugin::syscontract::delegatebw,
-  (from)(receiver)(stake_net_quantity)(stake_cpu_quantity)(transfer) )
-
-FC_REFLECT( zmqplugin::syscontract::undelegatebw,
-  (from)(receiver)(unstake_net_quantity)(unstake_cpu_quantity) )
-
-FC_REFLECT( zmqplugin::syscontract::refund,
-  (owner) )
-
-FC_REFLECT( zmqplugin::syscontract::regproducer,
-  (producer)(producer_key)(url)(location) )
-
-FC_REFLECT( zmqplugin::syscontract::unregprod,
-  (producer) )
-
-FC_REFLECT( zmqplugin::syscontract::regproxy,
-  (proxy)(isproxy) )
-
-FC_REFLECT( zmqplugin::syscontract::voteproducer,
-  (voter)(proxy)(producers) )
-
-FC_REFLECT( zmqplugin::syscontract::claimrewards,
-  (owner) )
-
-FC_REFLECT( zmqplugin::token::transfer,
-  (from)(to)(quantity)(memo) )
-
-FC_REFLECT( zmqplugin::token::issue,
-  (to)(quantity)(memo) )
-
-FC_REFLECT( zmqplugin::token::open,
-  (owner)(symbol)(ram_payer) )
-
-FC_REFLECT( zmqplugin::resource_balance,
-  (account_name)(ram_quota)(ram_usage)(net_weight)(cpu_weight)(net_limit)(cpu_limit) )
-
-FC_REFLECT( zmqplugin::currency_balance,
-  (account_name)(contract)(balance)(deleted))
-
 FC_REFLECT( zmqplugin::zmq_action_object,
-  (global_action_seq)(block_num)(block_time)(action_trace)
-  (last_irreversible_block) )
+  (global_action_seq)
+  (block_num)
+  (block_time)
+  (action_trace)
+  (last_irreversible_block)
+  )
 
 FC_REFLECT( zmqplugin::zmq_irreversible_block_object,
-  (irreversible_block_num)(irreversible_block_digest) )
+  (irreversible_block_num)
+  (irreversible_block_digest)
+  )
 
 FC_REFLECT( zmqplugin::zmq_fork_block_object,
-  (invalid_block_num) )
+  (invalid_block_num)
+  )
 
-FC_REFLECT( zmqplugin::zmq_accepted_block_object,
-  (accepted_block_num)(accepted_block_digest))
+FC_REFLECT(zmqplugin::zmq_accepted_block_object,
+  (accepted_block_num)
+  (accepted_block_timestamp)
+  (accepted_block_producer)
+  (accepted_block_digest)
+  )
 
 FC_REFLECT( zmqplugin::zmq_failed_transaction_object,
-  (trx_id)(block_num)(status_name)(status_int) )
+  (trx_id)
+  (block_num)
+  (status_name)
+  (status_int)
+  )
