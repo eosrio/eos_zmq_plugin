@@ -28,10 +28,14 @@ endpoint. Default value: `tcp://127.0.0.1:5556`.
 #### Whitelist HTTP API (hot-reload, no need to restart nodeos)
 
 Example to set a new whitelist
-`curl -sL -X POST -d '["eosio.token","eosio","eosio.forum"]' http://127.0.0.1:8888/v1/zmq/set_whitelist`
+```bash
+curl -sL -X POST -d '["eosio.token","eosio","eosio.forum"]' http://127.0.0.1:8888/v1/zmq/set_whitelist
+```
 
 Get the current whitelist with
-`curl -sL http://127.0.0.1:8888/v1/zmq/get_whitelist`
+```bash
+curl -sL http://127.0.0.1:8888/v1/zmq/get_whitelist
+```
 
 ## Compiling
 
