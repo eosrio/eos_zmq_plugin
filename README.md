@@ -25,7 +25,13 @@ endpoint. Default value: `tcp://127.0.0.1:5556`.
 
 * `zmq-use-bloom-filter` -- WARNING: experimental bloom filter, optimized for large lists.
 
+#### Whitelist HTTP API
 
+Example to set a new whitelist
+`curl -sL -X POST -d '["eosio.token"]' http://127.0.0.1:8888/v1/zmq/set_whitelist`
+
+Get the current whitelist with
+`curl -sL http://127.0.0.1:8888/v1/zmq/get_whitelist`
 
 ## Compiling
 
