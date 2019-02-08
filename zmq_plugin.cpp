@@ -340,6 +340,7 @@ namespace eosio {
     }
 
     void zmq_plugin::set_whitelisted_account(const flat_set<account_name> &input) {
+        my->use_whitelist = input.size() != 0;
         my->whitelisted_accounts = input;
     }
 
@@ -366,7 +367,7 @@ namespace eosio {
                     try {
                         if (body.empty()) body = "{}";
                         zmq.set_whitelisted_account(fc::json::from_string(body).as<flat_set<account_name>>());
-                        cb(200,"OK");
+                        cb(200, "OK");
                     } catch (...) {
                         http_plugin::handle_exception("zmq", "set_whitelist", body, cb);
                     }
