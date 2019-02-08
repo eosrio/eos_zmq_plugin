@@ -235,53 +235,44 @@ namespace eosio {
 
         if( (options.count(WHITELIST_OPT) > 0) || options.count(WHITELIST_FILE_OPT) ) {
 
-            int32_t n_actors = 0;
             std::string currentActor;
             std::ifstream infile;
 
+            std::set<account_name> accounts;
+
             my->use_whitelist = true;
 
+            // add from file
             if(options.count(WHITELIST_FILE_OPT)) {
-
                 const std::string &whitelist_file_name = options[WHITELIST_FILE_OPT].as<std::string>();
-
                 EOS_ASSERT(fc::exists(whitelist_file_name), plugin_config_exception, "whitelist file does not exist");
-
                 infile = std::ifstream(whitelist_file_name, (std::ios::in));
-
                 while(std::getline(infile, currentActor)) {
                     // TODO: validate account_name
-                    n_actors++;
+                    accounts.insert(account_name(currentActor));
                 }
-            } else {
-                n_actors = options.count(WHITELIST_OPT);
             }
 
-            ilog("${a} whitelist size = ", ("a", n_actors));
-            
+            // add from config file
+            if(options.count(WHITELIST_OPT) > 0) {
+                auto whl = options.at(WHITELIST_OPT).as<vector<string>>();
+                for( auto &whlname : whl ) {
+                    accounts.insert(account_name(whlname));
+                }
+            }
+
+            ilog("Whitelist size = ${a}", ("a", accounts.size()));
+
             bloom_parameters *p = new bloom_parameters();
-            p->projected_element_count = n_actors;
+            p->projected_element_count = accounts.size();
             p->false_positive_probability = 1.0 / p->projected_element_count;
             p->compute_optimal_parameters();
 
             fc::bloom_filter *bloomfilter = new fc::bloom_filter(*p);
 
-            if(options.count(WHITELIST_FILE_OPT)) {
-                std::string actor;
-                // add from file
-                while(std::getline(infile, actor)) {
-                    bloomfilter->insert(account_name(actor));
-                    ilog("${a} added to the whitelist from file", ("a", account_name(actor)));
-                }
-            }
-
-            if(options.count(WHITELIST_OPT) > 0) {
-                // add from config file
-                auto whl = options.at(WHITELIST_OPT).as<vector<string>>();
-                for( auto &whlname : whl ) {
-                    bloomfilter->insert(eosio::name(whlname));
-                    ilog("${a} added to the whitelist", ("a", whlname));
-                }
+            for(auto &acc : accounts) {
+                bloomfilter->insert(acc);
+                ilog("${a} added to the whitelist", ("a", acc));
             }
 
             my->whitelist_accounts_bloomfilter = bloomfilter;
