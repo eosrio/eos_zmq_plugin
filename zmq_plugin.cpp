@@ -2,13 +2,17 @@
 #include <string>
 #include <zmq.hpp>
 
+#include <fc/variant.hpp>
 #include <fc/io/json.hpp>
 #include <fc/bloom_filter.hpp>
 
+#include <eosio/chain/exceptions.hpp>
 #include <eosio/chain/types.hpp>
 #include <eosio/chain/controller.hpp>
 #include <eosio/chain/trace.hpp>
 #include <eosio/chain_plugin/chain_plugin.hpp>
+
+#include <chrono>
 
 
 namespace {
@@ -26,6 +30,15 @@ namespace {
     const std::string MSGTYPE_FORK = "fork";
     const std::string MSGTYPE_ACCEPTED_BLOCK = "accepted_block";
     const std::string MSGTYPE_FAILED_TX = "failed_tx";
+}
+
+
+namespace eosio {
+    namespace detail {
+        struct zmq_api_response {
+            std::string result;
+        };
+    }
 }
 
 namespace zmqplugin {
@@ -62,6 +75,10 @@ namespace zmqplugin {
         eosio::chain::transaction_receipt::status_enum status_name;
         uint8_t                                        status_int;
     };
+
+    struct whitelist {
+        fc::optional<flat_set<account_name>> account_whitelist;
+    };
 }
 
 
@@ -86,7 +103,7 @@ namespace eosio {
         bool                    use_whitelist = false;
         bool                    use_bloom = false;
         fc::bloom_filter        *whitelist_accounts_bf = NULL;
-        std::set<name>          whitelisted_accounts;
+        flat_set<account_name>  whitelisted_accounts;
 
         fc::optional<scoped_connection> applied_transaction_connection;
         fc::optional<scoped_connection> accepted_block_connection;
@@ -98,7 +115,6 @@ namespace eosio {
             // Add eosio::onblock by default to the blacklist
             blacklist_actions.emplace(std::make_pair(chain::config::system_account_name, std::set<name> { N(onblock) } ));
         }
-
 
         void send_msg( const string content, const string msgtype, int32_t msgopts) {
             string part1 = "{\"type\":\"";
@@ -239,6 +255,22 @@ namespace eosio {
 
     void zmq_plugin::plugin_initialize(const variables_map &options) {
 
+        try {
+            const auto &_http_plugin = app().get_plugin<http_plugin>();
+            if( !_http_plugin.is_on_loopback()) {
+                wlog( "\n"
+                      "**********SECURITY WARNING**********\n"
+                      "*                                  *\n"
+                      "* --       ZMQ PLUGIN API       -- *\n"
+                      "* - EXPOSED to the LOCAL NETWORK - *\n"
+                      "* - USE ONLY ON SECURE NETWORKS! - *\n"
+                      "*                                  *\n"
+                      "************************************\n" );
+
+            }
+        }
+        FC_LOG_AND_RETHROW()
+
         my->socket_bind_str = options.at(SENDER_BIND_OPT).as<string>();
 
         my->use_bloom = options.at(BLOOM_FILTER_OPT).as<bool>();
@@ -252,8 +284,7 @@ namespace eosio {
 
             std::string currentActor;
             std::ifstream infile;
-
-            std::set<account_name> accounts;
+            flat_set<account_name> accounts;
 
             // add from file
             if(options.count(WHITELIST_FILE_OPT)) {
@@ -330,7 +361,38 @@ namespace eosio {
         } ));
     }
 
+#define INVOKE_V_R(api_handle, call_name, in_param) \
+         api_handle.call_name(fc::json::from_string(body).as<in_param>()); \
+         eosio::detail::zmq_api_response result{"ok"};
+
+
+    std::string zmq_plugin::get_whitelisted_accounts() const {
+        flat_set<account_name> list = my->whitelisted_accounts;
+        return fc::json::to_string(list);
+    }
+
+
     void zmq_plugin::plugin_startup() {
+
+        auto &zmq = app().get_plugin<zmq_plugin>();
+
+        app().get_plugin<http_plugin>().add_api({
+            {
+                std::string("/v1/zmq/get_whitelist"),
+                [&zmq](string, string body, url_response_callback cb) mutable {
+                    try {
+                        if (body.empty()) body = "{}";
+                        cb(
+                            200,
+                            zmq.get_whitelisted_accounts()
+                        );
+                    } catch (...) {
+                        http_plugin::handle_exception("zmq", "get_whitelist", body, cb);
+                    }
+                }
+            }
+        });
+
     }
 
     void zmq_plugin::plugin_shutdown() {
@@ -339,6 +401,10 @@ namespace eosio {
             my->sender_socket.close();
         }
     }
+
+#undef INVOKE_R_V
+#undef INVOKE_V_R
+#undef CALL
 }
 
 FC_REFLECT( zmqplugin::zmq_action_object,
@@ -370,4 +436,8 @@ FC_REFLECT( zmqplugin::zmq_failed_transaction_object,
             (block_num)
             (status_name)
             (status_int)
+          )
+
+FC_REFLECT( zmqplugin::whitelist,
+            (account_whitelist)
           )
