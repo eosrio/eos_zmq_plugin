@@ -1,17 +1,21 @@
 #include <eosio/zmq_plugin/zmq_plugin.hpp>
 #include <string>
 #include <zmq.hpp>
+
 #include <fc/io/json.hpp>
+#include <fc/bloom_filter.hpp>
 
 #include <eosio/chain/types.hpp>
 #include <eosio/chain/controller.hpp>
 #include <eosio/chain/trace.hpp>
 #include <eosio/chain_plugin/chain_plugin.hpp>
 
+
 namespace {
     const char *SENDER_BIND_OPT = "zmq-sender-bind";
     const char *SENDER_BIND_DEFAULT = "tcp://127.0.0.1:5556";
     const char *WHITELIST_OPT = "zmq-whitelist-account";
+    const char *WHITELIST_FILE_OPT = "zmq-whitelist-account-file";
     const char *BLACKLIST_OPT = "zmq-action-blacklist";
     const std::string MSGTYPE_ACTION_TRACE = "action_trace";
     const std::string MSGTYPE_IRREVERSIBLE_BLOCK = "irreversible_block";
@@ -77,6 +81,7 @@ namespace eosio {
         uint32_t               _end_block = 0;
         bool                   use_whitelist = false;
         std::set<name>         whitelist_accounts;
+        fc::bloom_filter *whitelist_accounts_bloomfilter = NULL;
 
         fc::optional<scoped_connection> applied_transaction_connection;
         fc::optional<scoped_connection> accepted_block_connection;
@@ -165,6 +170,12 @@ namespace eosio {
 
         void on_action_trace( const action_trace &at, const block_state_ptr &block_state ) {
 
+            if(whitelist_accounts_bloomfilter != NULL) {
+                if(!whitelist_accounts_bloomfilter->contains(at.act.account)) {
+                    return;
+                }
+            }
+
             if( use_whitelist ) {
                 // only allow accounts from whitelist
                 if( whitelist_accounts.count(at.act.account) == 0 ) {
@@ -210,6 +221,8 @@ namespace eosio {
         cfg.add_options()
         (SENDER_BIND_OPT, bpo::value<string>()->default_value(SENDER_BIND_DEFAULT),
          "ZMQ Sender Socket binding")
+        (WHITELIST_FILE_OPT, bpo::value<string>(),
+         +         "ZMQ Whitelisted accounts from file (may specify only a single time)")
         (BLACKLIST_OPT, bpo::value<vector<string>>()->composing()->multitoken(),
          "Action (in the form code::action) added to zmq action blacklist (may specify multiple times)")
         (WHITELIST_OPT, bpo::value<vector<string>>()->composing(),
@@ -230,6 +243,23 @@ namespace eosio {
                 my->whitelist_accounts.insert(eosio::name(whlname));
             }
         }
+
+        if( options.count(WHITELIST_FILE_OPT)) {
+            const std::string &whitelist_file_name = options[WHITELIST_FILE_OPT].as<std::string>();
+            bloom_parameters *p = new bloom_parameters();
+            EOS_ASSERT(fc::exists(whitelist_file_name), plugin_config_exception, "whitelist file does not exist");
+            p->projected_element_count = 100000;
+            p->false_positive_probability = 1.0 / p->projected_element_count;
+            p->compute_optimal_parameters();
+            auto infile = std::ifstream(whitelist_file_name, (std::ios::in));
+            std::string currentActor;
+            fc::bloom_filter *whitelist_accounts_bloomfilter = new fc::bloom_filter(*p);
+            while(std::getline(infile, currentActor)) {
+                whitelist_accounts_bloomfilter->insert(account_name(currentActor));
+            }
+            my->whitelist_accounts_bloomfilter = whitelist_accounts_bloomfilter;
+        }
+
 
         if( options.count(BLACKLIST_OPT)) {
             const vector<string> &acts = options[BLACKLIST_OPT].as<vector<string>>();
