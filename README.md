@@ -1,4 +1,4 @@
-# zmq_plugin
+# ØMQ Nodeos Plugin
 
 Lighter version of the [eosio zmq_plugin](https://github.com/cc32d9/eos_zmq_plugin)
 
