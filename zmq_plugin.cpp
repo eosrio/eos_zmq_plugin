@@ -255,6 +255,7 @@ namespace eosio {
             std::string currentActor;
             fc::bloom_filter *whitelist_accounts_bloomfilter = new fc::bloom_filter(*p);
             while(std::getline(infile, currentActor)) {
+                ilog("${a} added to the whitelist", ("a", account_name(currentActor)));
                 whitelist_accounts_bloomfilter->insert(account_name(currentActor));
             }
             my->whitelist_accounts_bloomfilter = whitelist_accounts_bloomfilter;
