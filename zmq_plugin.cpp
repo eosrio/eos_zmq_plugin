@@ -258,10 +258,11 @@ namespace eosio {
             fc::bloom_filter *bloomfilter = new fc::bloom_filter(*p);
 
             if(options.count(WHITELIST_FILE_OPT)) {
+                std::string actor;
                 // add from file
-                while(std::getline(infile, currentActor)) {
-                    bloomfilter->insert(account_name(currentActor));
-                    ilog("${a} added to the whitelist", ("a", account_name(currentActor)));
+                while(std::getline(infile, actor)) {
+                    bloomfilter->insert(account_name(actor));
+                    ilog("${a} added to the whitelist", ("a", account_name(actor)));
                 }
             }
 
