@@ -171,20 +171,19 @@ namespace eosio {
         void on_action_trace( const action_trace &at, const block_state_ptr &block_state ) {
 
             if( whitelist_accounts_bloomfilter != NULL ) {
-                ilog("Whitelist ON - current account: ${a}", ("a", at.act.account));
                 if(!whitelist_accounts_bloomfilter->contains(at.act.account)) {
                     return;
+                } else {
+                  ilog("Whitelist ON - current account: ${a}", ("a", at.act.account));
                 }
             }
 
             if(use_whitelist) {
-                // only allow accounts from whitelist
                 if( whitelist_accounts.count(at.act.account) == 0 ) {
                     return;
                 }
             }
 
-            // check the action against the blacklist
             auto search_acc = blacklist_actions.find(at.act.account);
             if(search_acc != blacklist_actions.end()) {
                 if( search_acc->second.count(at.act.name) != 0 ) {
