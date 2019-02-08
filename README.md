@@ -52,6 +52,15 @@ Change to the eos repository folder and run:
 LOCAL_CMAKE_FLAGS="-DEOSIO_ADDITIONAL_PLUGINS=${HOME}/build/eos_zmq_plugin" ./eosio_build.sh
 ```
 
+## Reading data from the socket
+
+This sample code uses the [zeromq](https://github.com/zeromq/zeromq.js/) prebuilt bindings for Node.js.
+
+```bash
+cd reader
+npm install
+node reader.js
+```
 
 ### Original Plugin Author
 
