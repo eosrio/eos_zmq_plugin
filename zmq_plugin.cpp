@@ -234,8 +234,11 @@ namespace eosio {
             std::string currentActor;
 
             if(options.count(WHITELIST_FILE_OPT)) {
-                EOS_ASSERT(fc::exists(whitelist_file_name), plugin_config_exception, "whitelist file does not exist");
+
                 const std::string &whitelist_file_name = options[WHITELIST_FILE_OPT].as<std::string>();
+                
+                EOS_ASSERT(fc::exists(whitelist_file_name), plugin_config_exception, "whitelist file does not exist");
+                
                 auto infile = std::ifstream(whitelist_file_name, (std::ios::in));
 
                 while(std::getline(infile, currentActor)) {
