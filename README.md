@@ -23,6 +23,8 @@ endpoint. Default value: `tcp://127.0.0.1:5556`.
 
 * `zmq-whitelist-account = ACCOUNT` -- sets up a whitelist, so that only traces for specified accounts are exported. Multiple options define multiple accounts to trace. If the account is a contract, all its actions (including inline actions) are exported. Also all transfers to and from the account, system actions, and third-party notifications are triggering the trace export. Whitelisted accounts will override the blacklist.
 
+* `zmq-use-bloom-filter` -- WARNING: experimental bloom filter, optimized for large lists.
+
 
 
 ## Compiling
