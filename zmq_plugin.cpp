@@ -261,8 +261,8 @@ namespace eosio {
             ilog("Whitelist size = ${a}", ("a", accounts.size()));
 
             bloom_parameters *p = new bloom_parameters();
-            p->projected_element_count = 1000;
-            p->false_positive_probability = 1.0 / p->projected_element_count;
+            p->projected_element_count = accounts.size();
+            p->false_positive_probability = 0.001;
             p->compute_optimal_parameters();
 
             fc::bloom_filter *bf = new fc::bloom_filter(*p);
