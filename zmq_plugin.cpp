@@ -83,8 +83,7 @@ namespace eosio {
 
         uint32_t               _end_block = 0;
         bool                   use_whitelist = false;
-        std::set<name>         whitelist_accounts;
-        fc::bloom_filter *whitelist_accounts_bloomfilter = NULL;
+        fc::bloom_filter       *whitelist_accounts_bf = NULL;
 
         fc::optional<scoped_connection> applied_transaction_connection;
         fc::optional<scoped_connection> accepted_block_connection;
@@ -176,7 +175,7 @@ namespace eosio {
         void on_action_trace( const action_trace &at, const block_state_ptr &block_state ) {
 
             if(use_whitelist) {
-                if(!whitelist_accounts_bloomfilter->contains(at.act.account)) {
+                if(!whitelist_accounts_bf->contains(at.act.account)) {
                     return;
                 }
             }
@@ -219,11 +218,11 @@ namespace eosio {
         (SENDER_BIND_OPT, bpo::value<string>()->default_value(SENDER_BIND_DEFAULT),
          "ZMQ Sender Socket binding")
         (WHITELIST_FILE_OPT, bpo::value<string>(),
-         +         "ZMQ Whitelisted accounts from file (may specify only a single time)")
+          "ZMQ Whitelisted accounts from file (may specify only a single time)")
         (BLACKLIST_OPT, bpo::value<vector<string>>()->composing()->multitoken(),
-         "Action (in the form code::action) added to zmq action blacklist (may specify multiple times)")
-        (WHITELIST_OPT, bpo::value<vector<string>>()->composing(),
-         "ZMQ plugin whitelist of accounts to track");
+          "Action (in the form code::action) added to zmq action blacklist (may specify multiple times)")
+        (WHITELIST_OPT, bpo::value<vector<string>>()->composing()->multitoken(),
+          "ZMQ plugin whitelist of accounts to track");
     }
 
     void zmq_plugin::plugin_initialize(const variables_map &options) {
@@ -239,8 +238,6 @@ namespace eosio {
             std::ifstream infile;
 
             std::set<account_name> accounts;
-
-            my->use_whitelist = true;
 
             // add from file
             if(options.count(WHITELIST_FILE_OPT)) {
@@ -264,18 +261,19 @@ namespace eosio {
             ilog("Whitelist size = ${a}", ("a", accounts.size()));
 
             bloom_parameters *p = new bloom_parameters();
-            p->projected_element_count = accounts.size();
+            p->projected_element_count = 1000;
             p->false_positive_probability = 1.0 / p->projected_element_count;
             p->compute_optimal_parameters();
 
-            fc::bloom_filter *bloomfilter = new fc::bloom_filter(*p);
+            fc::bloom_filter *bf = new fc::bloom_filter(*p);
 
             for(auto &acc : accounts) {
-                bloomfilter->insert(acc);
+                bf->insert(acc);
                 ilog("${a} added to the whitelist", ("a", acc));
             }
 
-            my->whitelist_accounts_bloomfilter = bloomfilter;
+            my->whitelist_accounts_bf = bf;
+            my->use_whitelist = true;
         }
 
 
