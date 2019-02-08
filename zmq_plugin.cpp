@@ -14,9 +14,12 @@
 namespace {
     const char *SENDER_BIND_OPT = "zmq-sender-bind";
     const char *SENDER_BIND_DEFAULT = "tcp://127.0.0.1:5556";
+
     const char *WHITELIST_OPT = "zmq-whitelist-account";
-    const char *WHITELIST_FILE_OPT = "zmq-whitelist-account-file";
+    const char *WHITELIST_FILE_OPT = "zmq-whitelist-accounts-file";
+
     const char *BLACKLIST_OPT = "zmq-action-blacklist";
+
     const std::string MSGTYPE_ACTION_TRACE = "action_trace";
     const std::string MSGTYPE_IRREVERSIBLE_BLOCK = "irreversible_block";
     const std::string MSGTYPE_FORK = "fork";
@@ -115,7 +118,9 @@ namespace eosio {
 
 
         void on_accepted_block(const block_state_ptr &block_state) {
+
             auto block_num = block_state->block->block_num();
+
             if ( _end_block >= block_num ) {
                 // report a fork. All traces sent with higher block number are invalid.
                 zmq_fork_block_object zfbo;
@@ -228,11 +233,13 @@ namespace eosio {
             return;
         }
 
-        if( options.count(WHITELIST_OPT) > 0 || options.count(WHITELIST_FILE_OPT)) {
+        if( (options.count(WHITELIST_OPT) > 0) || options.count(WHITELIST_FILE_OPT) ) {
 
             int32_t n_actors = 0;
             std::string currentActor;
             std::ifstream infile;
+
+            my->use_whitelist = true;
 
             if(options.count(WHITELIST_FILE_OPT)) {
 
@@ -250,6 +257,8 @@ namespace eosio {
                 n_actors = options.count(WHITELIST_OPT);
             }
 
+            ilog("${a} whitelist size = ", ("a", n_actors));
+            
             bloom_parameters *p = new bloom_parameters();
             p->projected_element_count = n_actors;
             p->false_positive_probability = 1.0 / p->projected_element_count;
@@ -262,7 +271,7 @@ namespace eosio {
                 // add from file
                 while(std::getline(infile, actor)) {
                     bloomfilter->insert(account_name(actor));
-                    ilog("${a} added to the whitelist", ("a", account_name(actor)));
+                    ilog("${a} added to the whitelist from file", ("a", account_name(actor)));
                 }
             }
 
