@@ -232,6 +232,7 @@ namespace eosio {
 
             int32_t n_actors = 0;
             std::string currentActor;
+            std::ifstream infile;
 
             if(options.count(WHITELIST_FILE_OPT)) {
 
@@ -239,7 +240,7 @@ namespace eosio {
 
                 EOS_ASSERT(fc::exists(whitelist_file_name), plugin_config_exception, "whitelist file does not exist");
 
-                auto infile = std::ifstream(whitelist_file_name, (std::ios::in));
+                infile = std::ifstream(whitelist_file_name, (std::ios::in));
 
                 while(std::getline(infile, currentActor)) {
                     // TODO: validate account_name
@@ -272,7 +273,7 @@ namespace eosio {
                     ilog("${a} added to the whitelist", ("a", eosio::name(whlname)));
                 }
             }
-            
+
             my->whitelist_accounts_bloomfilter = whitelist_accounts_bloomfilter;
         }
 
