@@ -173,8 +173,6 @@ namespace eosio {
             if( whitelist_accounts_bloomfilter != NULL ) {
                 if(!whitelist_accounts_bloomfilter->contains(at.act.account)) {
                     return;
-                } else {
-                  ilog("Whitelist ON - current account: ${a}", ("a", at.act.account));
                 }
             }
 
