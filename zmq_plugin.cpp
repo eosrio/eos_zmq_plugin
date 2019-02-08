@@ -1,19 +1,4 @@
 #include <eosio/zmq_plugin/zmq_plugin.hpp>
-#include <string>
-#include <zmq.hpp>
-
-#include <fc/variant.hpp>
-#include <fc/io/json.hpp>
-#include <fc/bloom_filter.hpp>
-
-#include <eosio/chain/exceptions.hpp>
-#include <eosio/chain/types.hpp>
-#include <eosio/chain/controller.hpp>
-#include <eosio/chain/trace.hpp>
-#include <eosio/chain_plugin/chain_plugin.hpp>
-
-#include <chrono>
-
 
 namespace {
     const char *SENDER_BIND_OPT = "zmq-sender-bind";
@@ -30,15 +15,6 @@ namespace {
     const std::string MSGTYPE_FORK = "fork";
     const std::string MSGTYPE_ACCEPTED_BLOCK = "accepted_block";
     const std::string MSGTYPE_FAILED_TX = "failed_tx";
-}
-
-
-namespace eosio {
-    namespace detail {
-        struct zmq_api_response {
-            std::string result;
-        };
-    }
 }
 
 namespace zmqplugin {
@@ -74,10 +50,6 @@ namespace zmqplugin {
         block_num_type                                 block_num;
         eosio::chain::transaction_receipt::status_enum status_name;
         uint8_t                                        status_int;
-    };
-
-    struct whitelist {
-        fc::optional<flat_set<account_name>> account_whitelist;
     };
 }
 
@@ -361,14 +333,14 @@ namespace eosio {
         } ));
     }
 
-#define INVOKE_V_R(api_handle, call_name, in_param) \
-         api_handle.call_name(fc::json::from_string(body).as<in_param>()); \
-         eosio::detail::zmq_api_response result{"ok"};
-
 
     std::string zmq_plugin::get_whitelisted_accounts() const {
         flat_set<account_name> list = my->whitelisted_accounts;
         return fc::json::to_string(list);
+    }
+
+    void zmq_plugin::set_whitelisted_account(const flat_set<account_name> &input) {
+        my->whitelisted_accounts = input;
     }
 
 
@@ -378,16 +350,25 @@ namespace eosio {
 
         app().get_plugin<http_plugin>().add_api({
             {
-                std::string("/v1/zmq/get_whitelist"),
+                "/v1/zmq/get_whitelist",
                 [&zmq](string, string body, url_response_callback cb) mutable {
                     try {
                         if (body.empty()) body = "{}";
-                        cb(
-                            200,
-                            zmq.get_whitelisted_accounts()
-                        );
+                        cb(200, zmq.get_whitelisted_accounts());
                     } catch (...) {
                         http_plugin::handle_exception("zmq", "get_whitelist", body, cb);
+                    }
+                }
+            },
+            {
+                "/v1/zmq/set_whitelist",
+                [&zmq](string, string body, url_response_callback cb) mutable {
+                    try {
+                        if (body.empty()) body = "{}";
+                        zmq.set_whitelisted_account(fc::json::from_string(body).as<flat_set<account_name>>());
+                        cb(200,"OK");
+                    } catch (...) {
+                        http_plugin::handle_exception("zmq", "set_whitelist", body, cb);
                     }
                 }
             }
@@ -436,8 +417,4 @@ FC_REFLECT( zmqplugin::zmq_failed_transaction_object,
             (block_num)
             (status_name)
             (status_int)
-          )
-
-FC_REFLECT( zmqplugin::whitelist,
-            (account_whitelist)
           )
