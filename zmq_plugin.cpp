@@ -236,9 +236,9 @@ namespace eosio {
             if(options.count(WHITELIST_FILE_OPT)) {
 
                 const std::string &whitelist_file_name = options[WHITELIST_FILE_OPT].as<std::string>();
-                
+
                 EOS_ASSERT(fc::exists(whitelist_file_name), plugin_config_exception, "whitelist file does not exist");
-                
+
                 auto infile = std::ifstream(whitelist_file_name, (std::ios::in));
 
                 while(std::getline(infile, currentActor)) {
@@ -246,7 +246,7 @@ namespace eosio {
                     n_actors++;
                 }
             } else {
-              n_actors = options.count(WHITELIST_OPT)
+                n_actors = options.count(WHITELIST_OPT);
             }
 
             bloom_parameters *p = new bloom_parameters();
@@ -256,18 +256,23 @@ namespace eosio {
 
             fc::bloom_filter *whitelist_accounts_bloomfilter = new fc::bloom_filter(*p);
 
-            // add from file
-            while(std::getline(infile, currentActor)) {
-                whitelist_accounts_bloomfilter->insert(account_name(currentActor));
-                ilog("${a} added to the whitelist", ("a", account_name(currentActor)));
+            if(options.count(WHITELIST_FILE_OPT)) {
+                // add from file
+                while(std::getline(infile, currentActor)) {
+                    whitelist_accounts_bloomfilter->insert(account_name(currentActor));
+                    ilog("${a} added to the whitelist", ("a", account_name(currentActor)));
+                }
             }
 
-            // add from config file
-            auto whl = options.at(WHITELIST_OPT).as<vector<string>>();
-            for( auto &whlname : whl ) {
-                whitelist_accounts_bloomfilter->insert(eosio::name(whlname));
-                ilog("${a} added to the whitelist", ("a", eosio::name(whlname)));
+            if(options.count(WHITELIST_OPT) > 0) {
+                // add from config file
+                auto whl = options.at(WHITELIST_OPT).as<vector<string>>();
+                for( auto &whlname : whl ) {
+                    whitelist_accounts_bloomfilter->insert(eosio::name(whlname));
+                    ilog("${a} added to the whitelist", ("a", eosio::name(whlname)));
+                }
             }
+            
             my->whitelist_accounts_bloomfilter = whitelist_accounts_bloomfilter;
         }
 
