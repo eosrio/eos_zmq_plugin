@@ -229,14 +229,28 @@ namespace eosio {
         }
 
         if( options.count(WHITELIST_OPT) > 0 || options.count(WHITELIST_FILE_OPT)) {
-            const std::string &whitelist_file_name = options[WHITELIST_FILE_OPT].as<std::string>();
+
+            int32_t n_actors = 0;
+            std::string currentActor;
+
+            if(options.count(WHITELIST_FILE_OPT)) {
+                EOS_ASSERT(fc::exists(whitelist_file_name), plugin_config_exception, "whitelist file does not exist");
+                const std::string &whitelist_file_name = options[WHITELIST_FILE_OPT].as<std::string>();
+                auto infile = std::ifstream(whitelist_file_name, (std::ios::in));
+
+                while(std::getline(infile, currentActor)) {
+                    // TODO: validate account_name
+                    n_actors++;
+                }
+            } else {
+              n_actors = options.count(WHITELIST_OPT)
+            }
+
             bloom_parameters *p = new bloom_parameters();
-            EOS_ASSERT(fc::exists(whitelist_file_name), plugin_config_exception, "whitelist file does not exist");
-            p->projected_element_count = 100000;
+            p->projected_element_count = n_actors;
             p->false_positive_probability = 1.0 / p->projected_element_count;
             p->compute_optimal_parameters();
-            auto infile = std::ifstream(whitelist_file_name, (std::ios::in));
-            std::string currentActor;
+            
             fc::bloom_filter *whitelist_accounts_bloomfilter = new fc::bloom_filter(*p);
 
             // add from file
