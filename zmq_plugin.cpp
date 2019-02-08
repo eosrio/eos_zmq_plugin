@@ -89,7 +89,7 @@ namespace eosio {
 
         zmq_plugin_impl():
             context(1),
-            sender_socket(context, ZMQ_PUSH) {
+            sender_socket(context, ZMQ_PUB) {
             // Add eosio::onblock by default to the blacklist
             blacklist_actions.emplace(std::make_pair(chain::config::system_account_name, std::set<name> { N(onblock) } ));
         }
@@ -250,7 +250,7 @@ namespace eosio {
             p->projected_element_count = n_actors;
             p->false_positive_probability = 1.0 / p->projected_element_count;
             p->compute_optimal_parameters();
-            
+
             fc::bloom_filter *whitelist_accounts_bloomfilter = new fc::bloom_filter(*p);
 
             // add from file
