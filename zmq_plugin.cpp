@@ -170,13 +170,14 @@ namespace eosio {
 
         void on_action_trace( const action_trace &at, const block_state_ptr &block_state ) {
 
-            if(whitelist_accounts_bloomfilter != NULL) {
+            if( whitelist_accounts_bloomfilter != NULL ) {
+                ilog("Whitelist ON - current account: ${a}", ("a", at.act.account));
                 if(!whitelist_accounts_bloomfilter->contains(at.act.account)) {
                     return;
                 }
             }
 
-            if( use_whitelist ) {
+            if(use_whitelist) {
                 // only allow accounts from whitelist
                 if( whitelist_accounts.count(at.act.account) == 0 ) {
                     return;
