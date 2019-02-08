@@ -170,7 +170,7 @@ namespace eosio {
 
         void on_action_trace( const action_trace &at, const block_state_ptr &block_state ) {
 
-            if( whitelist_accounts_bloomfilter != NULL ) {
+            if(use_whitelist) {
                 if(!whitelist_accounts_bloomfilter->contains(at.act.account)) {
                     return;
                 }
@@ -255,12 +255,12 @@ namespace eosio {
             p->false_positive_probability = 1.0 / p->projected_element_count;
             p->compute_optimal_parameters();
 
-            fc::bloom_filter *whitelist_accounts_bloomfilter = new fc::bloom_filter(*p);
+            fc::bloom_filter *bloomfilter = new fc::bloom_filter(*p);
 
             if(options.count(WHITELIST_FILE_OPT)) {
                 // add from file
                 while(std::getline(infile, currentActor)) {
-                    whitelist_accounts_bloomfilter->insert(account_name(currentActor));
+                    bloomfilter->insert(account_name(currentActor));
                     ilog("${a} added to the whitelist", ("a", account_name(currentActor)));
                 }
             }
@@ -269,12 +269,12 @@ namespace eosio {
                 // add from config file
                 auto whl = options.at(WHITELIST_OPT).as<vector<string>>();
                 for( auto &whlname : whl ) {
-                    whitelist_accounts_bloomfilter->insert(eosio::name(whlname));
-                    ilog("${a} added to the whitelist", ("a", eosio::name(whlname)));
+                    bloomfilter->insert(eosio::name(whlname));
+                    ilog("${a} added to the whitelist", ("a", whlname));
                 }
             }
 
-            my->whitelist_accounts_bloomfilter = whitelist_accounts_bloomfilter;
+            my->whitelist_accounts_bloomfilter = bloomfilter;
         }
 
 
