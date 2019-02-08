@@ -89,7 +89,7 @@ namespace eosio {
 
         zmq_plugin_impl():
             context(1),
-            sender_socket(context, ZMQ_PUB) {
+            sender_socket(context, ZMQ_PUSH) {
             // Add eosio::onblock by default to the blacklist
             blacklist_actions.emplace(std::make_pair(chain::config::system_account_name, std::set<name> { N(onblock) } ));
         }
