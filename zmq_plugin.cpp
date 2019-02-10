@@ -34,11 +34,12 @@ namespace zmqplugin {
     using namespace eosio::chain;
 
     struct zmq_action_object {
-        uint64_t                     global_action_seq;
-        block_num_type               block_num;
-        chain::block_timestamp_type  block_time;
-        fc::variant                  action_trace;
-        uint32_t                     last_irreversible_block;
+        uint64_t                       global_action_seq;
+        block_num_type                 block_num;
+        chain::block_timestamp_type    block_time;
+        fc::variant                    action_trace;
+        uint32_t                       last_irreversible_block;
+        std::chrono::duration<double>  deserialization_time;
     };
 
     struct zmq_irreversible_block_object {
@@ -249,7 +250,12 @@ namespace eosio {
             zao.global_action_seq = at.receipt.global_sequence;
             zao.block_num = block_state->block->block_num();
             zao.block_time = block_state->block->timestamp;
+            
+            auto start = std::chrono::high_resolution_clock::now();
             zao.action_trace = chain.to_variant_with_abi(at, abi_serializer_max_time);
+            auto end = std::chrono::high_resolution_clock::now();
+
+            zao.deserialization_time = end-start;
             zao.last_irreversible_block = chain.last_irreversible_block_num();
             send_msg(fc::json::to_string(zao), MSGTYPE_ACTION_TRACE);
         }
