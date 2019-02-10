@@ -18,8 +18,27 @@ Action `onblock` in `eosio` account is ignored and is not producing a
 ZMQ event. These actions are generated every 0.5s, and ignored in order
 to save the CPU resource.
 
-* `zmq-sender-bind = ENDPOINT` -- specifies the PUSH socket binding
-endpoint. Default value: `tcp://127.0.0.1:5556`.
+### Socket options
+
+Both socket types are disabled by default, you need to explicitly enable them
+
+#### PUB/SUB
+
+* `zmq-enable-pub-socket = true/false` --  enables sending messages on pub/sub pattern (non-blocking)
+	- In the case multiple subscribers are connected all messages will be sent to all subscribers
+
+* `zmq-publisher-bind = ENDPOINT`
+	- specifies the PUSH socket binding endpoint.
+	- Default value: `tcp://127.0.0.1:5557`.
+
+#### PUSH/PULL
+
+* `zmq-enable-push-socket = true/false` -- enables sending messages on push/pull pattern (blocking)
+	- If multiple clients are connected, messages will be distributed in a round-robin fashion to the clients
+
+* `zmq-sender-bind = ENDPOINT`
+	- specifies the PUSH socket binding endpoint.
+	- Default value: `tcp://127.0.0.1:5556`.
 
 #### Whitelist options
 
