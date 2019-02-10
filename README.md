@@ -8,6 +8,10 @@ The following configuration statements in `config.ini` are recognized:
 
 * `plugin = eosio::zmq_plugin` -- enables the ZMQ plugin
 
+* `zmq-enable-actions = true/false` -- enable action output (default: false)
+
+* `zmq-enable-transactions = true/false` -- enable transactions output (default: false)
+
 * `zmq-action-blacklist = CODE::ACTION` -- filter out a specific action
 
 Action `onblock` in `eosio` account is ignored and is not producing a
