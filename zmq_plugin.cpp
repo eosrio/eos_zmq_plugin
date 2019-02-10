@@ -10,7 +10,9 @@ namespace {
     const char *BLACKLIST_OPT = "zmq-action-blacklist";
 
     const char *BLOOM_FILTER_OPT = "zmq-use-bloom-filter";
+
     const char *SEND_TRANSACTIONS_OPT = "zmq-enable-transactions";
+    const char *SEND_ACTIONS_OPT = "zmq-enable-actions";
 
     const std::string MSGTYPE_ACTION_TRACE = "action_trace";
     const std::string MSGTYPE_TRANSACTION_TRACE = "transaction_trace";
@@ -78,6 +80,8 @@ namespace eosio {
         bool                    use_whitelist = false;
         bool                    use_bloom = false;
         bool                    send_trx = false;
+        bool                    send_actions = false;
+
         fc::bloom_filter        *whitelist_accounts_bf = NULL;
         flat_set<account_name>  whitelisted_accounts;
 
@@ -134,41 +138,47 @@ namespace eosio {
                 send_msg(fc::json::to_string(zabo), MSGTYPE_ACCEPTED_BLOCK, 0);
             }
 
-            for (auto &r : block_state->block->transactions) {
-                transaction_id_type id;
-                if (r.trx.contains<transaction_id_type>()) {
-                    id = r.trx.get<transaction_id_type>();
-                } else {
-                    id = r.trx.get<packed_transaction>().id();
-                }
+            if(send_trx || send_actions) {
 
-                if( r.status == transaction_receipt_header::executed ) {
-
-                    // send full transaction
-                    if(send_trx) {
-                        auto v = chain.to_variant_with_abi(r, abi_serializer_max_time);
-                        string trx_json = fc::json::to_string(v);
-                        send_msg(trx_json, MSGTYPE_TRANSACTION_TRACE, 0);
+                for (auto &r : block_state->block->transactions) {
+                    transaction_id_type id;
+                    if (r.trx.contains<transaction_id_type>()) {
+                        id = r.trx.get<transaction_id_type>();
+                    } else {
+                        id = r.trx.get<packed_transaction>().id();
                     }
 
-                    // Send traces only for executed transactions
-                    auto it = cached_traces.find(id);
-                    if (it == cached_traces.end() || !it->second->receipt) {
-                        ilog("missing trace for transaction {id}", ("id", id));
-                        continue;
-                    }
+                    if( r.status == transaction_receipt_header::executed ) {
 
-                    for( const auto &atrace : it->second->action_traces ) {
-                        on_action_trace(atrace, block_state);
+                        // Send traces only for executed transactions
+                        auto it = cached_traces.find(id);
+                        if (it == cached_traces.end() || !it->second->receipt) {
+                            ilog("missing trace for transaction {id}", ("id", id));
+                            continue;
+                        }
+
+                        // send full transaction
+                        if(send_trx) {
+                            auto v = chain.to_variant_with_abi(r, abi_serializer_max_time);
+                            string trx_json = fc::json::to_string(v);
+                            send_msg(trx_json, MSGTYPE_TRANSACTION_TRACE, 0);
+                        }
+
+                        if(send_actions) {
+                            for( const auto &atrace : it->second->action_traces ) {
+                                on_action_trace(atrace, block_state);
+                            }
+                        }
+
+                    } else {
+                        // Notify about a failed transaction
+                        zmq_failed_transaction_object zfto;
+                        zfto.trx_id = id.str();
+                        zfto.block_num = block_num;
+                        zfto.status_name = r.status;
+                        zfto.status_int = static_cast<uint8_t>(r.status);
+                        send_msg(fc::json::to_string(zfto), MSGTYPE_FAILED_TX, 0);
                     }
-                } else {
-                    // Notify about a failed transaction
-                    zmq_failed_transaction_object zfto;
-                    zfto.trx_id = id.str();
-                    zfto.block_num = block_num;
-                    zfto.status_name = r.status;
-                    zfto.status_int = static_cast<uint8_t>(r.status);
-                    send_msg(fc::json::to_string(zfto), MSGTYPE_FAILED_TX, 0);
                 }
             }
 
@@ -230,6 +240,8 @@ namespace eosio {
          "Use bloom filter for whitelisting")
         (SEND_TRANSACTIONS_OPT, bpo::bool_switch()->default_value(false),
          "Enable transactions output")
+        (SEND_ACTIONS_OPT, bpo::bool_switch()->default_value(false),
+         "Enable actions output")
         (WHITELIST_FILE_OPT, bpo::value<string>(),
          "ZMQ Whitelisted accounts from file (may specify only a single time)")
         (BLACKLIST_OPT, bpo::value<vector<string>>()->composing()->multitoken(),
@@ -261,6 +273,8 @@ namespace eosio {
         my->use_bloom = options.at(BLOOM_FILTER_OPT).as<bool>();
 
         my->send_trx = options.at(SEND_TRANSACTIONS_OPT).as<bool>();
+
+        my->send_actions = options.at(SEND_ACTIONS_OPT).as<bool>();
 
         if (my->socket_bind_str.empty()) {
             wlog("zmq-sender-bind not specified => eosio::zmq_plugin disabled.");
