@@ -8,9 +8,12 @@ namespace {
     const char *WHITELIST_FILE_OPT = "zmq-whitelist-accounts-file";
 
     const char *BLACKLIST_OPT = "zmq-action-blacklist";
+
     const char *BLOOM_FILTER_OPT = "zmq-use-bloom-filter";
+    const char *SEND_TRANSACTIONS_OPT = "zmq-enable-transactions";
 
     const std::string MSGTYPE_ACTION_TRACE = "action_trace";
+    const std::string MSGTYPE_TRANSACTION_TRACE = "transaction_trace";
     const std::string MSGTYPE_IRREVERSIBLE_BLOCK = "irreversible_block";
     const std::string MSGTYPE_FORK = "fork";
     const std::string MSGTYPE_ACCEPTED_BLOCK = "accepted_block";
@@ -66,7 +69,7 @@ namespace eosio {
         zmq::context_t context;
         zmq::socket_t sender_socket;
         string socket_bind_str;
-        chain_plugin          *chain_plug = nullptr;
+        chain_plugin          *chain_plugin = nullptr;
         fc::microseconds       abi_serializer_max_time;
         std::map<name, std::set<name>>  blacklist_actions;
         std::map<transaction_id_type, transaction_trace_ptr> cached_traces;
@@ -74,6 +77,7 @@ namespace eosio {
         uint32_t                _end_block = 0;
         bool                    use_whitelist = false;
         bool                    use_bloom = false;
+        bool                    send_trx = false;
         fc::bloom_filter        *whitelist_accounts_bf = NULL;
         flat_set<account_name>  whitelisted_accounts;
 
@@ -110,6 +114,7 @@ namespace eosio {
         void on_accepted_block(const block_state_ptr &block_state) {
 
             auto block_num = block_state->block->block_num();
+            auto &chain = chain_plugin->chain();
 
             if ( _end_block >= block_num ) {
                 // report a fork. All traces sent with higher block number are invalid.
@@ -138,6 +143,14 @@ namespace eosio {
                 }
 
                 if( r.status == transaction_receipt_header::executed ) {
+
+                    // send full transaction
+                    if(send_trx) {
+                        auto v = chain.to_variant_with_abi(r, abi_serializer_max_time);
+                        string trx_json = fc::json::to_string(v);
+                        send_msg(trx_json, MSGTYPE_TRANSACTION_TRACE, 0);
+                    }
+
                     // Send traces only for executed transactions
                     auto it = cached_traces.find(id);
                     if (it == cached_traces.end() || !it->second->receipt) {
@@ -146,7 +159,7 @@ namespace eosio {
                     }
 
                     for( const auto &atrace : it->second->action_traces ) {
-                        on_action_trace( atrace, block_state );
+                        on_action_trace(atrace, block_state);
                     }
                 } else {
                     // Notify about a failed transaction
@@ -163,7 +176,7 @@ namespace eosio {
         }
 
 
-        void on_action_trace( const action_trace &at, const block_state_ptr &block_state ) {
+        void on_action_trace( const action_trace &at, const block_state_ptr &block_state) {
 
             if(use_whitelist) {
 
@@ -185,14 +198,12 @@ namespace eosio {
                 }
             }
 
-            auto &chain = chain_plug->chain();
-
+            auto &chain = chain_plugin->chain();
             zmq_action_object zao;
             zao.global_action_seq = at.receipt.global_sequence;
             zao.block_num = block_state->block->block_num();
             zao.block_time = block_state->block->timestamp;
             zao.action_trace = chain.to_variant_with_abi(at, abi_serializer_max_time);
-
             zao.last_irreversible_block = chain.last_irreversible_block_num();
             send_msg(fc::json::to_string(zao), MSGTYPE_ACTION_TRACE, 0);
         }
@@ -216,7 +227,9 @@ namespace eosio {
         (SENDER_BIND_OPT, bpo::value<string>()->default_value(SENDER_BIND_DEFAULT),
          "ZMQ Sender Socket binding")
         (BLOOM_FILTER_OPT, bpo::bool_switch()->default_value(false),
-         "ZMQ Sender Socket binding")
+         "Use bloom filter for whitelisting")
+        (SEND_TRANSACTIONS_OPT, bpo::bool_switch()->default_value(false),
+         "Enable transactions output")
         (WHITELIST_FILE_OPT, bpo::value<string>(),
          "ZMQ Whitelisted accounts from file (may specify only a single time)")
         (BLACKLIST_OPT, bpo::value<vector<string>>()->composing()->multitoken(),
@@ -246,6 +259,8 @@ namespace eosio {
         my->socket_bind_str = options.at(SENDER_BIND_OPT).as<string>();
 
         my->use_bloom = options.at(BLOOM_FILTER_OPT).as<bool>();
+
+        my->send_trx = options.at(SEND_TRANSACTIONS_OPT).as<bool>();
 
         if (my->socket_bind_str.empty()) {
             wlog("zmq-sender-bind not specified => eosio::zmq_plugin disabled.");
@@ -312,10 +327,10 @@ namespace eosio {
         ilog("Binding to ZMQ PUSH socket ${u}", ("u", my->socket_bind_str));
         my->sender_socket.bind(my->socket_bind_str);
 
-        my->chain_plug = app().find_plugin<chain_plugin>();
-        my->abi_serializer_max_time = my->chain_plug->get_abi_serializer_max_time();
+        my->chain_plugin = app().find_plugin<chain_plugin>();
+        my->abi_serializer_max_time = my->chain_plugin->get_abi_serializer_max_time();
 
-        auto &chain = my->chain_plug->chain();
+        auto &chain = my->chain_plugin->chain();
 
         my->applied_transaction_connection.emplace
         ( chain.applied_transaction.connect( [&]( const transaction_trace_ptr & p ) {
@@ -339,7 +354,12 @@ namespace eosio {
         return fc::json::to_string(list);
     }
 
-    void zmq_plugin::set_whitelisted_account(const flat_set<account_name> &input) {
+    void zmq_plugin::set_whitelisted_accounts(const flat_set<account_name> &input) {
+        my->use_whitelist = input.size() != 0;
+        my->whitelisted_accounts = input;
+    }
+
+    void zmq_plugin::push_whitelisted_accounts(const flat_set<account_name> &input) {
         my->use_whitelist = input.size() != 0;
         my->whitelisted_accounts = input;
     }
@@ -366,7 +386,19 @@ namespace eosio {
                 [&zmq](string, string body, url_response_callback cb) mutable {
                     try {
                         if (body.empty()) body = "{}";
-                        zmq.set_whitelisted_account(fc::json::from_string(body).as<flat_set<account_name>>());
+                        zmq.set_whitelisted_accounts(fc::json::from_string(body).as<flat_set<account_name>>());
+                        cb(200, "OK");
+                    } catch (...) {
+                        http_plugin::handle_exception("zmq", "set_whitelist", body, cb);
+                    }
+                }
+            },
+            {
+                "/v1/zmq/push_whitelist",
+                [&zmq](string, string body, url_response_callback cb) mutable {
+                    try {
+                        if (body.empty()) body = "{}";
+                        zmq.push_whitelisted_accounts(fc::json::from_string(body).as<flat_set<account_name>>());
                         cb(200, "OK");
                     } catch (...) {
                         http_plugin::handle_exception("zmq", "set_whitelist", body, cb);

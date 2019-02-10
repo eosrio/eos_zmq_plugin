@@ -34,7 +34,8 @@ namespace eosio {
         void plugin_startup();
         void plugin_shutdown();
         std::string get_whitelisted_accounts() const;
-        void set_whitelisted_account(const fc::flat_set<account_name> &input);
+        void set_whitelisted_accounts(const fc::flat_set<account_name> &input);
+        void push_whitelisted_accounts(const fc::flat_set<account_name> &input);
 
     private:
         std::unique_ptr<class zmq_plugin_impl> my;
