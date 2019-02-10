@@ -1,8 +1,11 @@
 #include <eosio/zmq_plugin/zmq_plugin.hpp>
 
 namespace {
-    const char *SENDER_BIND_OPT = "zmq-sender-bind";
-    const char *SENDER_BIND_DEFAULT = "tcp://127.0.0.1:5556";
+    const char *PUSH_BIND_OPT = "zmq-sender-bind";
+    const char *PUSH_BIND_DEFAULT = "tcp://127.0.0.1:5556";
+
+    const char *PUBLISHER_BIND_OPT = "zmq-publisher-bind";
+    const char *PUBLISHER_BIND_DEFAULT = "tcp://127.0.0.1:5557";
 
     const char *WHITELIST_OPT = "zmq-whitelist-account";
     const char *WHITELIST_FILE_OPT = "zmq-whitelist-accounts-file";
@@ -69,8 +72,13 @@ namespace eosio {
     class zmq_plugin_impl {
     public:
         zmq::context_t context;
-        zmq::socket_t sender_socket;
-        string socket_bind_str;
+
+        zmq::socket_t push_socket;
+        zmq::socket_t pub_socket;
+
+        string push_bind_str;
+        string pub_bind_str;
+
         chain_plugin          *chain_plugin = nullptr;
         fc::microseconds       abi_serializer_max_time;
         std::map<name, std::set<name>>  blacklist_actions;
@@ -81,6 +89,8 @@ namespace eosio {
         bool                    use_bloom = false;
         bool                    send_trx = false;
         bool                    send_actions = false;
+        bool                    enable_publisher = false;
+        bool                    enable_push = false;
 
         fc::bloom_filter        *whitelist_accounts_bf = NULL;
         flat_set<account_name>  whitelisted_accounts;
@@ -91,9 +101,15 @@ namespace eosio {
 
         zmq_plugin_impl():
             context(1),
-            sender_socket(context, ZMQ_PUSH) {
+            push_socket(context, ZMQ_PUSH),
+            pub_socket(context, ZMQ_PUB) {
             // Add eosio::onblock by default to the blacklist
-            blacklist_actions.emplace(std::make_pair(chain::config::system_account_name, std::set<name> { N(onblock) } ));
+            blacklist_actions.emplace(
+                std::make_pair(
+                    chain::config::system_account_name,
+                    std::set<name> {N(onblock)}
+                )
+            );
         }
 
         void send_msg( const string content, const string msgtype, int32_t msgopts) {
@@ -104,7 +120,12 @@ namespace eosio {
             zmq::message_t message(result.length());
             unsigned char *ptr = (unsigned char *) message.data();
             memcpy(ptr, result.c_str(), result.length());
-            sender_socket.send(message);
+
+            // Send to non-blocking publisher socker (fan out)
+            if(enable_publisher) pub_socket.send(message);
+
+            // Send to blocking push socker (round-robin)
+            if(enable_push) push_socket.send(message);
         }
 
 
@@ -234,20 +255,14 @@ namespace eosio {
 
     void zmq_plugin::set_program_options(options_description &, options_description &cfg) {
         cfg.add_options()
-        (SENDER_BIND_OPT, bpo::value<string>()->default_value(SENDER_BIND_DEFAULT),
-         "ZMQ Sender Socket binding")
-        (BLOOM_FILTER_OPT, bpo::bool_switch()->default_value(false),
-         "Use bloom filter for whitelisting")
-        (SEND_TRANSACTIONS_OPT, bpo::bool_switch()->default_value(false),
-         "Enable transactions output")
-        (SEND_ACTIONS_OPT, bpo::bool_switch()->default_value(false),
-         "Enable actions output")
-        (WHITELIST_FILE_OPT, bpo::value<string>(),
-         "ZMQ Whitelisted accounts from file (may specify only a single time)")
-        (BLACKLIST_OPT, bpo::value<vector<string>>()->composing()->multitoken(),
-         "Action (in the form code::action) added to zmq action blacklist (may specify multiple times)")
-        (WHITELIST_OPT, bpo::value<vector<string>>()->composing()->multitoken(),
-         "ZMQ plugin whitelist of accounts to track");
+        (PUSH_BIND_OPT, bpo::value<string>(), "ZMQ PUSH Socket binding - blocking")
+        (PUBLISHER_BIND_OPT, bpo::value<string>(), "ZMQ PUB Socket binding - non-blocking")
+        (BLOOM_FILTER_OPT, bpo::bool_switch()->default_value(false), "Use bloom filter for whitelisting")
+        (SEND_TRANSACTIONS_OPT, bpo::bool_switch()->default_value(false), "Enable transactions output")
+        (SEND_ACTIONS_OPT, bpo::bool_switch()->default_value(false), "Enable actions output")
+        (WHITELIST_FILE_OPT, bpo::value<string>(), "ZMQ Whitelisted accounts from file (may specify only a single time)")
+        (BLACKLIST_OPT, bpo::value<vector<string>>()->composing()->multitoken(), "Action (in the form code::action) added to zmq action blacklist (may specify multiple times)")
+        (WHITELIST_OPT, bpo::value<vector<string>>()->composing()->multitoken(), "ZMQ plugin whitelist of accounts to track");
     }
 
     void zmq_plugin::plugin_initialize(const variables_map &options) {
@@ -268,18 +283,26 @@ namespace eosio {
         }
         FC_LOG_AND_RETHROW()
 
-        my->socket_bind_str = options.at(SENDER_BIND_OPT).as<string>();
 
-        my->use_bloom = options.at(BLOOM_FILTER_OPT).as<bool>();
+        my->push_bind_str = options.at(PUSH_BIND_OPT).as<string>();
+        my->pub_bind_str = options.at(PUBLISHER_BIND_OPT).as<string>();
 
-        my->send_trx = options.at(SEND_TRANSACTIONS_OPT).as<bool>();
-
-        my->send_actions = options.at(SEND_ACTIONS_OPT).as<bool>();
-
-        if (my->socket_bind_str.empty()) {
-            wlog("zmq-sender-bind not specified => eosio::zmq_plugin disabled.");
+        if (my->push_bind_str.empty() && my->pub_bind_str.empty()) {
+            wlog("zmq-sender-bind nor zmq-publisher-bind not specified => eosio::zmq_plugin disabled.");
             return;
         }
+
+        if(!my->pub_bind_str.empty()) {
+            my->enable_publisher = true;
+        }
+
+        if(!my->push_bind_str.empty()) {
+            my->enable_push = true;
+        }
+
+        my->use_bloom = options.at(BLOOM_FILTER_OPT).as<bool>();
+        my->send_trx = options.at(SEND_TRANSACTIONS_OPT).as<bool>();
+        my->send_actions = options.at(SEND_ACTIONS_OPT).as<bool>();
 
         if( (options.count(WHITELIST_OPT) > 0) || options.count(WHITELIST_FILE_OPT) ) {
 
@@ -338,8 +361,15 @@ namespace eosio {
             }
         }
 
-        ilog("Binding to ZMQ PUSH socket ${u}", ("u", my->socket_bind_str));
-        my->sender_socket.bind(my->socket_bind_str);
+        if(options.count(PUSH_BIND_OPT)) {
+            ilog("Binding to ZMQ PUSH socket ${u}", ("u", my->push_bind_str));
+            my->push_socket.bind(my->push_bind_str);
+        }
+
+        if(options.count(PUBLISHER_BIND_OPT)) {
+            ilog("Binding to ZMQ PUB socket ${u}", ("u", my->pub_bind_str));
+            my->pub_socket.bind(my->pub_bind_str);
+        }
 
         my->chain_plugin = app().find_plugin<chain_plugin>();
         my->abi_serializer_max_time = my->chain_plugin->get_abi_serializer_max_time();
@@ -424,9 +454,15 @@ namespace eosio {
     }
 
     void zmq_plugin::plugin_shutdown() {
-        if( ! my->socket_bind_str.empty() ) {
-            my->sender_socket.disconnect(my->socket_bind_str);
-            my->sender_socket.close();
+        
+        if( ! my->push_bind_str.empty() ) {
+            my->push_socket.disconnect(my->push_bind_str);
+            my->push_socket.close();
+        }
+
+        if( ! my->pub_bind_str.empty() ) {
+            my->pub_socket.disconnect(my->pub_bind_str);
+            my->pub_socket.close();
         }
     }
 
