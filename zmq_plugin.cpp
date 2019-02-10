@@ -1,6 +1,10 @@
 #include <eosio/zmq_plugin/zmq_plugin.hpp>
 
 namespace {
+
+    const char *PUB_OPT = "zmq-enable-pub-socket";
+    const char *PUSH_OPT = "zmq-enable-push-socket";
+
     const char *PUSH_BIND_OPT = "zmq-sender-bind";
     const char *PUSH_BIND_DEFAULT = "tcp://127.0.0.1:5556";
 
@@ -89,6 +93,7 @@ namespace eosio {
         bool                    use_bloom = false;
         bool                    send_trx = false;
         bool                    send_actions = false;
+
         bool                    enable_publisher = false;
         bool                    enable_push = false;
 
@@ -112,20 +117,30 @@ namespace eosio {
             );
         }
 
-        void send_msg( const string content, const string msgtype, int32_t msgopts) {
+        void send_msg( const string content, const string msgtype) {
+
             string part1 = "{\"type\":\"";
             string part2 = "\",\"" + msgtype + "\":";
             string part3 = "}";
             string result = part1 + msgtype + part2 + content + part3;
-            zmq::message_t message(result.length());
-            unsigned char *ptr = (unsigned char *) message.data();
-            memcpy(ptr, result.c_str(), result.length());
 
             // Send to non-blocking publisher socker (fan out)
-            if(enable_publisher) pub_socket.send(message);
+            if(enable_publisher) {
+                string topic = msgtype + "-";
+                string result_with_topic = topic + result;
+                zmq::message_t message_pub(result_with_topic.length());
+                unsigned char *ptr_pub = (unsigned char *) message_pub.data();
+                memcpy(ptr_pub, result_with_topic.c_str(), result_with_topic.length());
+                pub_socket.send(message_pub);
+            }
 
             // Send to blocking push socker (round-robin)
-            if(enable_push) push_socket.send(message);
+            if(enable_push) {
+                zmq::message_t message(result.length());
+                unsigned char *ptr = (unsigned char *) message.data();
+                memcpy(ptr, result.c_str(), result.length());
+                push_socket.send(message);
+            }
         }
 
 
@@ -145,7 +160,7 @@ namespace eosio {
                 // report a fork. All traces sent with higher block number are invalid.
                 zmq_fork_block_object zfbo;
                 zfbo.invalid_block_num = block_num;
-                send_msg(fc::json::to_string(zfbo), MSGTYPE_FORK, 0);
+                send_msg(fc::json::to_string(zfbo), MSGTYPE_FORK);
             }
 
             _end_block = block_num;
@@ -156,10 +171,10 @@ namespace eosio {
                 zabo.accepted_block_timestamp = block_state->block->timestamp;
                 zabo.accepted_block_producer = block_state->header.producer;
                 zabo.accepted_block_digest = block_state->block->digest();
-                send_msg(fc::json::to_string(zabo), MSGTYPE_ACCEPTED_BLOCK, 0);
+                send_msg(fc::json::to_string(zabo), MSGTYPE_ACCEPTED_BLOCK);
             }
 
-            if(send_trx || send_actions) {
+            if( send_trx || send_actions ) {
 
                 for (auto &r : block_state->block->transactions) {
                     transaction_id_type id;
@@ -182,7 +197,7 @@ namespace eosio {
                         if(send_trx) {
                             auto v = chain.to_variant_with_abi(r, abi_serializer_max_time);
                             string trx_json = fc::json::to_string(v);
-                            send_msg(trx_json, MSGTYPE_TRANSACTION_TRACE, 0);
+                            send_msg(trx_json, MSGTYPE_TRANSACTION_TRACE);
                         }
 
                         if(send_actions) {
@@ -198,7 +213,7 @@ namespace eosio {
                         zfto.block_num = block_num;
                         zfto.status_name = r.status;
                         zfto.status_int = static_cast<uint8_t>(r.status);
-                        send_msg(fc::json::to_string(zfto), MSGTYPE_FAILED_TX, 0);
+                        send_msg(fc::json::to_string(zfto), MSGTYPE_FAILED_TX);
                     }
                 }
             }
@@ -236,7 +251,7 @@ namespace eosio {
             zao.block_time = block_state->block->timestamp;
             zao.action_trace = chain.to_variant_with_abi(at, abi_serializer_max_time);
             zao.last_irreversible_block = chain.last_irreversible_block_num();
-            send_msg(fc::json::to_string(zao), MSGTYPE_ACTION_TRACE, 0);
+            send_msg(fc::json::to_string(zao), MSGTYPE_ACTION_TRACE);
         }
 
 
@@ -244,7 +259,7 @@ namespace eosio {
             zmq_irreversible_block_object zibo;
             zibo.irreversible_block_num = bs->block->block_num();
             zibo.irreversible_block_digest = bs->block->digest();
-            send_msg(fc::json::to_string(zibo), MSGTYPE_IRREVERSIBLE_BLOCK, 0);
+            send_msg(fc::json::to_string(zibo), MSGTYPE_IRREVERSIBLE_BLOCK);
         }
 
     };
@@ -255,8 +270,10 @@ namespace eosio {
 
     void zmq_plugin::set_program_options(options_description &, options_description &cfg) {
         cfg.add_options()
-        (PUSH_BIND_OPT, bpo::value<string>(), "ZMQ PUSH Socket binding - blocking")
-        (PUBLISHER_BIND_OPT, bpo::value<string>(), "ZMQ PUB Socket binding - non-blocking")
+        (PUSH_OPT, bpo::bool_switch()->default_value(false), "Enable ZMQ PUSH socket")
+        (PUB_OPT, bpo::bool_switch()->default_value(false), "Enable ZMQ PUB socket")
+        (PUSH_BIND_OPT, bpo::value<string>()->default_value(PUSH_BIND_DEFAULT), "ZMQ PUSH Socket binding - blocking")
+        (PUBLISHER_BIND_OPT, bpo::value<string>()->default_value(PUBLISHER_BIND_DEFAULT), "ZMQ PUB Socket binding - non-blocking")
         (BLOOM_FILTER_OPT, bpo::bool_switch()->default_value(false), "Use bloom filter for whitelisting")
         (SEND_TRANSACTIONS_OPT, bpo::bool_switch()->default_value(false), "Enable transactions output")
         (SEND_ACTIONS_OPT, bpo::bool_switch()->default_value(false), "Enable actions output")
@@ -292,13 +309,8 @@ namespace eosio {
             return;
         }
 
-        if(!my->pub_bind_str.empty()) {
-            my->enable_publisher = true;
-        }
-
-        if(!my->push_bind_str.empty()) {
-            my->enable_push = true;
-        }
+        my->enable_publisher = options.at(PUB_OPT).as<bool>();
+        my->enable_push =      options.at(PUSH_OPT).as<bool>();
 
         my->use_bloom = options.at(BLOOM_FILTER_OPT).as<bool>();
         my->send_trx = options.at(SEND_TRANSACTIONS_OPT).as<bool>();
@@ -454,7 +466,7 @@ namespace eosio {
     }
 
     void zmq_plugin::plugin_shutdown() {
-        
+
         if( ! my->push_bind_str.empty() ) {
             my->push_socket.disconnect(my->push_bind_str);
             my->push_socket.close();
