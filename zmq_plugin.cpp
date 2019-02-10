@@ -39,7 +39,7 @@ namespace zmqplugin {
         chain::block_timestamp_type    block_time;
         fc::variant                    action_trace;
         uint32_t                       last_irreversible_block;
-        std::chrono::duration<double>  deserialization_time;
+        string                         deserialization_time;
     };
 
     struct zmq_irreversible_block_object {
@@ -70,6 +70,7 @@ namespace zmqplugin {
 namespace eosio {
     using namespace chain;
     using namespace zmqplugin;
+    using namespace std::chrono;
     using boost::signals2::scoped_connection;
 
     static appbase::abstract_plugin &_zmq_plugin = app().register_plugin<zmq_plugin>();
@@ -251,11 +252,14 @@ namespace eosio {
             zao.block_num = block_state->block->block_num();
             zao.block_time = block_state->block->timestamp;
             
-            auto start = std::chrono::high_resolution_clock::now();
+            // Measure deserialization time
+            high_resolution_clock::time_point t1 = high_resolution_clock::now();
             zao.action_trace = chain.to_variant_with_abi(at, abi_serializer_max_time);
-            auto end = std::chrono::high_resolution_clock::now();
+            high_resolution_clock::time_point t2 = high_resolution_clock::now();
 
-            zao.deserialization_time = end-start;
+            duration<double> time_span = duration_cast<duration<double>>(t2 - t1);
+
+            zao.deserialization_time = std::to_string(time_span.count()) + "s";
             zao.last_irreversible_block = chain.last_irreversible_block_num();
             send_msg(fc::json::to_string(zao), MSGTYPE_ACTION_TRACE);
         }
@@ -495,6 +499,7 @@ FC_REFLECT( zmqplugin::zmq_action_object,
             (block_time)
             (action_trace)
             (last_irreversible_block)
+            (deserialization_time)
           )
 
 FC_REFLECT( zmqplugin::zmq_irreversible_block_object,
