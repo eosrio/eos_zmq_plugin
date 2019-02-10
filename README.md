@@ -22,15 +22,6 @@ to save the CPU resource.
 
 Both socket types are disabled by default, you need to explicitly enable them
 
-#### PUB/SUB
-
-* `zmq-enable-pub-socket = true/false` --  enables sending messages on pub/sub pattern (non-blocking)
-	- In the case multiple subscribers are connected all messages will be sent to all subscribers
-
-* `zmq-publisher-bind = ENDPOINT`
-	- specifies the PUSH socket binding endpoint.
-	- Default value: `tcp://127.0.0.1:5557`.
-
 #### PUSH/PULL
 
 * `zmq-enable-push-socket = true/false` -- enables sending messages on push/pull pattern (blocking)
@@ -39,6 +30,15 @@ Both socket types are disabled by default, you need to explicitly enable them
 * `zmq-sender-bind = ENDPOINT`
 	- specifies the PUSH socket binding endpoint.
 	- Default value: `tcp://127.0.0.1:5556`.
+
+#### PUB/SUB
+
+* `zmq-enable-pub-socket = true/false` --  enables sending messages on pub/sub pattern (non-blocking)
+	- In the case multiple subscribers are connected all messages will be sent to all subscribers
+
+* `zmq-publisher-bind = ENDPOINT`
+	- specifies the PUSH socket binding endpoint.
+	- Default value: `tcp://127.0.0.1:5557`.
 
 #### Whitelist options
 
