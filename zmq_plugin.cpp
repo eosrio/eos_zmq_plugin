@@ -2,31 +2,28 @@
 
 namespace {
 
-    const char *PUB_OPT = "zmq-enable-pub-socket";
-    const char *PUSH_OPT = "zmq-enable-push-socket";
+    const char *PUSH_OPT                          = "zmq-enable-push-socket";
+    const char *PUSH_BIND_OPT                     = "zmq-sender-bind";
+    const char *PUSH_BIND_DEFAULT                 = "tcp://127.0.0.1:5556";
 
-    const char *PUSH_BIND_OPT = "zmq-sender-bind";
-    const char *PUSH_BIND_DEFAULT = "tcp://127.0.0.1:5556";
+    const char *PUB_OPT                           = "zmq-enable-pub-socket";
+    const char *PUBLISHER_BIND_OPT                = "zmq-publisher-bind";
+    const char *PUBLISHER_BIND_DEFAULT            = "tcp://127.0.0.1:5557";
 
-    const char *PUBLISHER_BIND_OPT = "zmq-publisher-bind";
-    const char *PUBLISHER_BIND_DEFAULT = "tcp://127.0.0.1:5557";
+    const char *WHITELIST_OPT                     = "zmq-whitelist-account";
+    const char *WHITELIST_FILE_OPT                = "zmq-whitelist-accounts-file";
+    const char *BLACKLIST_OPT                     = "zmq-action-blacklist";
+    const char *BLOOM_FILTER_OPT                  = "zmq-use-bloom-filter";
 
-    const char *WHITELIST_OPT = "zmq-whitelist-account";
-    const char *WHITELIST_FILE_OPT = "zmq-whitelist-accounts-file";
+    const char *SEND_TRANSACTIONS_OPT             = "zmq-enable-transactions";
+    const char *SEND_ACTIONS_OPT                  = "zmq-enable-actions";
 
-    const char *BLACKLIST_OPT = "zmq-action-blacklist";
-
-    const char *BLOOM_FILTER_OPT = "zmq-use-bloom-filter";
-
-    const char *SEND_TRANSACTIONS_OPT = "zmq-enable-transactions";
-    const char *SEND_ACTIONS_OPT = "zmq-enable-actions";
-
-    const std::string MSGTYPE_ACTION_TRACE = "action_trace";
-    const std::string MSGTYPE_TRANSACTION_TRACE = "transaction_trace";
-    const std::string MSGTYPE_IRREVERSIBLE_BLOCK = "irreversible_block";
-    const std::string MSGTYPE_FORK = "fork";
-    const std::string MSGTYPE_ACCEPTED_BLOCK = "accepted_block";
-    const std::string MSGTYPE_FAILED_TX = "failed_tx";
+    const std::string MSGTYPE_ACTION_TRACE        = "action_trace";
+    const std::string MSGTYPE_TRANSACTION_TRACE   = "transaction_trace";
+    const std::string MSGTYPE_IRREVERSIBLE_BLOCK  = "irreversible_block";
+    const std::string MSGTYPE_FORK                = "fork";
+    const std::string MSGTYPE_ACCEPTED_BLOCK      = "accepted_block";
+    const std::string MSGTYPE_FAILED_TX           = "failed_tx";
 }
 
 namespace zmqplugin {
@@ -43,19 +40,19 @@ namespace zmqplugin {
     };
 
     struct zmq_irreversible_block_object {
-        block_num_type               irreversible_block_num;
-        digest_type                  irreversible_block_digest;
+        block_num_type        irreversible_block_num;
+        digest_type           irreversible_block_digest;
     };
 
     struct zmq_fork_block_object {
-        block_num_type                    invalid_block_num;
+        block_num_type        invalid_block_num;
     };
 
     struct zmq_accepted_block_object {
-        block_num_type               accepted_block_num;
-        block_timestamp_type         accepted_block_timestamp;
-        account_name                 accepted_block_producer;
-        digest_type                  accepted_block_digest;
+        block_num_type        accepted_block_num;
+        block_timestamp_type  accepted_block_timestamp;
+        account_name          accepted_block_producer;
+        digest_type           accepted_block_digest;
     };
 
     struct zmq_failed_transaction_object {
@@ -85,22 +82,22 @@ namespace eosio {
         string push_bind_str;
         string pub_bind_str;
 
-        chain_plugin          *chain_plugin = nullptr;
-        fc::microseconds       abi_serializer_max_time;
+        chain_plugin *chain_plugin = nullptr;
+        fc::microseconds abi_serializer_max_time;
         std::map<name, std::set<name>>  blacklist_actions;
         std::map<transaction_id_type, transaction_trace_ptr> cached_traces;
 
-        uint32_t                _end_block = 0;
-        bool                    use_whitelist = false;
-        bool                    use_bloom = false;
-        bool                    send_trx = false;
-        bool                    send_actions = false;
+        uint32_t _end_block        = 0;
+        bool use_whitelist         = false;
+        bool use_bloom             = false;
+        bool send_trx              = false;
+        bool send_actions          = false;
 
-        bool                    enable_publisher = false;
-        bool                    enable_push = false;
+        bool enable_publisher      = false;
+        bool enable_push           = false;
 
-        fc::bloom_filter        *whitelist_accounts_bf = NULL;
-        flat_set<account_name>  whitelisted_accounts;
+        fc::bloom_filter *whitelist_accounts_bf = NULL;
+        flat_set<account_name> whitelisted_accounts;
 
         fc::optional<scoped_connection> applied_transaction_connection;
         fc::optional<scoped_connection> accepted_block_connection;
@@ -204,7 +201,16 @@ namespace eosio {
 
                         if(send_actions) {
                             for( const auto &atrace : it->second->action_traces ) {
-                                on_action_trace(atrace, block_state);
+                                try {
+                                    try {
+                                        on_action_trace( atrace, block_state );
+                                    } catch ( ... ) {
+                                        wlog("Failed to decode action ${c}:${a} in ${t}",
+                                             ("c", atrace.act.account)("a", atrace.act.name)("t", id));
+                                        throw;
+                                    }
+                                }
+                                FC_LOG_AND_DROP();
                             }
                         }
 
@@ -251,7 +257,7 @@ namespace eosio {
             zao.global_action_seq = at.receipt.global_sequence;
             zao.block_num = block_state->block->block_num();
             zao.block_time = block_state->block->timestamp;
-            
+
             // Measure deserialization time
             high_resolution_clock::time_point t1 = high_resolution_clock::now();
             zao.action_trace = chain.to_variant_with_abi(at, abi_serializer_max_time);

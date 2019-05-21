@@ -64,7 +64,7 @@ curl -sL http://127.0.0.1:8888/v1/zmq/get_whitelist
 
 Clone the zmq_plugin repo:
 ```bash
-apt-get install -y pkg-config libzmq5-dev
+apt-get install -y pkg-config libzmq5-dev libnorm-dev
 mkdir ${HOME}/build
 cd ${HOME}/build/
 git clone https://github.com/eosrio/eos_zmq_plugin.git
