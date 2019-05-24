@@ -391,9 +391,12 @@ namespace eosio {
         }
 
         my->chain_plugin = app().find_plugin<chain_plugin>();
+        ilog("chain_plugin checkpoint 1");
+        
         my->abi_serializer_max_time = my->chain_plugin->get_abi_serializer_max_time();
 
         auto &chain = my->chain_plugin->chain();
+        ilog("chain_plugin checkpoint 1");
 
         my->applied_transaction_connection.emplace
         ( chain.applied_transaction.connect( [&]( const transaction_trace_ptr & p ) {
