@@ -381,13 +381,13 @@ namespace eosio {
         }
 
         if(options.count(PUSH_BIND_OPT)) {
-            ilog("Binding to ZMQ PUSH socket ${u}", ("u", my->push_bind_str));
             my->push_socket.bind(my->push_bind_str);
+            ilog("Binding to ZMQ PUSH socket ${u}", ("u", my->push_bind_str));
         }
 
         if(options.count(PUBLISHER_BIND_OPT)) {
-            ilog("Binding to ZMQ PUB socket ${u}", ("u", my->pub_bind_str));
             my->pub_socket.bind(my->pub_bind_str);
+            ilog("Binding to ZMQ PUB socket ${u}", ("u", my->pub_bind_str));
         }
 
         my->chain_plugin = app().find_plugin<chain_plugin>();
