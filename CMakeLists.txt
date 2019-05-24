@@ -29,4 +29,4 @@ add_library( zmq_plugin
 
 target_link_libraries( zmq_plugin chain_plugin http_plugin eosio_chain ${ZeroMQ_LIBRARY} )
 
-## eosio_additional_plugin(zmq_plugin)
+eosio_additional_plugin(zmq_plugin)
