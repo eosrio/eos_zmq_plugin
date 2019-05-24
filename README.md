@@ -6,7 +6,11 @@ Lighter version of the [eosio zmq_plugin](https://github.com/cc32d9/eos_zmq_plug
 
 The following configuration statements in `config.ini` are recognized:
 
-* `plugin = eosio::zmq_plugin` -- enables the ZMQ plugin
+Make sure zmq is loaded after the chain plugin.
+```
+plugin = eosio::chain_plugin
+plugin = eosio::zmq_plugin
+```
 
 * `zmq-enable-actions = true/false` -- enable action output (default: false)
 
