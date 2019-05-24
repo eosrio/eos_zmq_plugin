@@ -72,7 +72,7 @@ git clone https://github.com/eosrio/eos_zmq_plugin.git
 
 Change to the eos repository folder and run:
 ```bash
-LOCAL_CMAKE_FLAGS="-DEOSIO_ADDITIONAL_PLUGINS=${HOME}/build/eos_zmq_plugin" ./eosio_build.sh
+LOCAL_CMAKE_FLAGS="-DEOSIO_ADDITIONAL_PLUGINS=${HOME}/build/eos_zmq_plugin" ./scripts/eosio_build.sh
 ```
 
 ## Reading data from the socket
