@@ -1,1 +1,4 @@
 reader/node_modules
+reader/.idea
+trx_watcher/node_modules
+trx_watcher/.idea

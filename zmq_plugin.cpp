@@ -201,16 +201,7 @@ namespace eosio {
 
                         if(send_actions) {
                             for( const auto &atrace : it->second->action_traces ) {
-                                try {
-                                    try {
-                                        on_action_trace( atrace, block_state );
-                                    } catch ( ... ) {
-                                        wlog("Failed to decode action ${c}:${a} in ${t}",
-                                             ("c", atrace.act.account)("a", atrace.act.name)("t", id));
-                                        throw;
-                                    }
-                                }
-                                FC_LOG_AND_DROP();
+                                on_action_trace( atrace, block_state );
                             }
                         }
 
