@@ -143,9 +143,11 @@ namespace eosio {
         }
 
 
-        void on_applied_transaction( const transaction_trace_ptr &p ) {
-            if (p->receipt) {
-                cached_traces[p->id] = p;
+        void on_applied_transaction( std::tuple<const transaction_trace_ptr&, const signed_transaction&> p ) {
+            const transaction_trace_ptr& tx_trace = std::get<0>(p);
+
+            if (tx_trace->receipt) {
+                cached_traces[tx_trace->id] = tx_trace;
             }
         }
 
@@ -245,7 +247,7 @@ namespace eosio {
 
             auto &chain = chain_plugin->chain();
             zmq_action_object zao;
-            zao.global_action_seq = at.receipt.global_sequence;
+            zao.global_action_seq = at.receipt->global_sequence;
             zao.block_num = block_state->block->block_num();
             zao.block_time = block_state->block->timestamp;
 
@@ -395,7 +397,7 @@ namespace eosio {
         auto &chain = my->chain_plugin->chain();
 
         my->applied_transaction_connection.emplace
-        ( chain.applied_transaction.connect( [&]( const transaction_trace_ptr & p ) {
+        ( chain.applied_transaction.connect( [&]( std::tuple<const transaction_trace_ptr&, const signed_transaction&> p ) {
             my->on_applied_transaction(p);
         }));
 
