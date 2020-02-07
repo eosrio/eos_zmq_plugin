@@ -18,6 +18,9 @@ namespace {
     const char *SEND_TRANSACTIONS_OPT             = "zmq-enable-transactions";
     const char *SEND_ACTIONS_OPT                  = "zmq-enable-actions";
 
+    const char *DEADLINE_OPT                      = "zmq-tostring-deadline";
+    const uint32_t DEADLINE_DEFAULT               = 250;
+
     const std::string MSGTYPE_ACTION_TRACE        = "action_trace";
     const std::string MSGTYPE_TRANSACTION_TRACE   = "transaction_trace";
     const std::string MSGTYPE_IRREVERSIBLE_BLOCK  = "irreversible_block";
@@ -96,6 +99,8 @@ namespace eosio {
         bool enable_publisher      = false;
         bool enable_push           = false;
 
+	fc::time_point deadline  = fc::time_point::now();
+
         fc::bloom_filter *whitelist_accounts_bf = NULL;
         flat_set<account_name> whitelisted_accounts;
 
@@ -161,7 +166,7 @@ namespace eosio {
                 // report a fork. All traces sent with higher block number are invalid.
                 zmq_fork_block_object zfbo;
                 zfbo.invalid_block_num = block_num;
-                send_msg(fc::json::to_string(zfbo), MSGTYPE_FORK);
+                send_msg(fc::json::to_string(zfbo, deadline), MSGTYPE_FORK);
             }
 
             _end_block = block_num;
@@ -172,7 +177,7 @@ namespace eosio {
                 zabo.accepted_block_timestamp = block_state->block->timestamp;
                 zabo.accepted_block_producer = block_state->header.producer;
                 zabo.accepted_block_digest = block_state->block->digest();
-                send_msg(fc::json::to_string(zabo), MSGTYPE_ACCEPTED_BLOCK);
+                send_msg(fc::json::to_string(zabo, deadline), MSGTYPE_ACCEPTED_BLOCK);
             }
 
             if( send_trx || send_actions ) {
@@ -197,7 +202,7 @@ namespace eosio {
                         // send full transaction
                         if(send_trx) {
                             auto v = chain.to_variant_with_abi(r, abi_serializer_max_time);
-                            string trx_json = fc::json::to_string(v);
+                            string trx_json = fc::json::to_string(v, deadline);
                             send_msg(trx_json, MSGTYPE_TRANSACTION_TRACE);
                         }
 
@@ -214,7 +219,7 @@ namespace eosio {
                         zfto.block_num = block_num;
                         zfto.status_name = r.status;
                         zfto.status_int = static_cast<uint8_t>(r.status);
-                        send_msg(fc::json::to_string(zfto), MSGTYPE_FAILED_TX);
+                        send_msg(fc::json::to_string(zfto, deadline), MSGTYPE_FAILED_TX);
                     }
                 }
             }
@@ -260,7 +265,7 @@ namespace eosio {
 
             zao.deserialization_time = std::to_string(time_span.count()) + "s";
             zao.last_irreversible_block = chain.last_irreversible_block_num();
-            send_msg(fc::json::to_string(zao), MSGTYPE_ACTION_TRACE);
+            send_msg(fc::json::to_string(zao, deadline), MSGTYPE_ACTION_TRACE);
         }
 
 
@@ -268,7 +273,7 @@ namespace eosio {
             zmq_irreversible_block_object zibo;
             zibo.irreversible_block_num = bs->block->block_num();
             zibo.irreversible_block_digest = bs->block->digest();
-            send_msg(fc::json::to_string(zibo), MSGTYPE_IRREVERSIBLE_BLOCK);
+            send_msg(fc::json::to_string(zibo, deadline), MSGTYPE_IRREVERSIBLE_BLOCK);
         }
 
     };
@@ -288,7 +293,8 @@ namespace eosio {
         (SEND_ACTIONS_OPT, bpo::bool_switch()->default_value(false), "Enable actions output")
         (WHITELIST_FILE_OPT, bpo::value<string>(), "ZMQ Whitelisted accounts from file (may specify only a single time)")
         (BLACKLIST_OPT, bpo::value<vector<string>>()->composing()->multitoken(), "Action (in the form code::action) added to zmq action blacklist (may specify multiple times)")
-        (WHITELIST_OPT, bpo::value<vector<string>>()->composing()->multitoken(), "ZMQ plugin whitelist of accounts to track");
+        (WHITELIST_OPT, bpo::value<vector<string>>()->composing()->multitoken(), "ZMQ plugin whitelist of accounts to track")
+        (DEADLINE_OPT, bpo::value<uint32_t>()->default_value(DEADLINE_DEFAULT), "Limit time in milliseconds spent formatting messages");
     }
 
     void zmq_plugin::plugin_initialize(const variables_map &options) {
@@ -324,6 +330,9 @@ namespace eosio {
         my->use_bloom = options.at(BLOOM_FILTER_OPT).as<bool>();
         my->send_trx = options.at(SEND_TRANSACTIONS_OPT).as<bool>();
         my->send_actions = options.at(SEND_ACTIONS_OPT).as<bool>();
+
+        fc::microseconds format_time_limit = fc::milliseconds(options.at(DEADLINE_OPT).as<uint32_t>());
+        my->deadline = fc::time_point::now() + format_time_limit;
 
         if( (options.count(WHITELIST_OPT) > 0) || options.count(WHITELIST_FILE_OPT) ) {
 
@@ -415,7 +424,7 @@ namespace eosio {
 
     std::string zmq_plugin::get_whitelisted_accounts() const {
         flat_set<account_name> list = my->whitelisted_accounts;
-        return fc::json::to_string(list);
+        return fc::json::to_string(list, my->deadline);
     }
 
     void zmq_plugin::set_whitelisted_accounts(const flat_set<account_name> &input) {
