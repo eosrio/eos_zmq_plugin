@@ -201,7 +201,7 @@ namespace eosio {
 
                         // send full transaction
                         if(send_trx) {
-                            auto v = chain.to_variant_with_abi(r, abi_serializer_max_time);
+                            auto v = chain.to_variant_with_abi(r, abi_serializer::create_yield_function(abi_serializer_max_time));
                             string trx_json = fc::json::to_string(v, deadline);
                             send_msg(trx_json, MSGTYPE_TRANSACTION_TRACE);
                         }
@@ -258,7 +258,7 @@ namespace eosio {
 
             // Measure deserialization time
             high_resolution_clock::time_point t1 = high_resolution_clock::now();
-            zao.action_trace = chain.to_variant_with_abi(at, abi_serializer_max_time);
+            zao.action_trace = chain.to_variant_with_abi(at, abi_serializer::create_yield_function(abi_serializer_max_time));
             high_resolution_clock::time_point t2 = high_resolution_clock::now();
 
             duration<double> time_span = duration_cast<duration<double>>(t2 - t1);
